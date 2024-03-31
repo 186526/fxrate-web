@@ -6,14 +6,14 @@ export interface FXListProps {
 	name: string;
 	type: {
 		buy: {
-			cash?: number;
-			remit?: number;
+			cash?: number | string;
+			remit?: number | string;
 		};
 		sell: {
-			cash?: number;
-			remit?: number;
+			cash?: number | string;
+			remit?: number | string;
 		};
-		middle: number;
+		middle: number | string;
 	};
 	updated: Date;
 	id?: number;

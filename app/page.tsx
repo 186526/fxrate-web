@@ -4,6 +4,8 @@ import Index from "@/componets/index";
 
 import FXRates from "@/lib/fxrate/src/client";
 
+import packageJson from "../package.json";
+
 const FXRate = new FXRates(new URL("https://fxrate.186526.eu.org/v1/jsonrpc"));
 
 async function showCurrencyAllRates() {
@@ -35,6 +37,11 @@ export default async function Home() {
 	return (
 		<main style={{ width: "100%" }}>
 			<Index currencies={await showCurrencyAllRates()}></Index>
+			<code>{((await FXRate.info()) as any).version}</code>
+			<br />
+			<code>
+				{packageJson.name}/{packageJson.version}
+			</code>
 		</main>
 	);
 }
