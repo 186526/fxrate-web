@@ -1,0 +1,3 @@
+[submodule "lib/fxrate"]
+	path = lib/fxrate
+	url = git@github.com:186526/fxrate.git
