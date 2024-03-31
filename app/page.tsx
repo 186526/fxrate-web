@@ -1,10 +1,10 @@
 "use sever";
 
 import Index from "@/componets/index";
-
 import FXRates from "@/lib/fxrate/src/client";
 
 import packageJson from "../package.json";
+import buildId from "next-build-id";
 
 const FXRate = new FXRates(new URL("https://fxrate.186526.eu.org/v1/jsonrpc"));
 
@@ -40,7 +40,7 @@ export default async function Home() {
 			<code>{((await FXRate.info()) as any).version}</code>
 			<br />
 			<code>
-				{packageJson.name}/{packageJson.version}
+				{packageJson.name}/{await buildId({ dir: __dirname, describe: true })}
 			</code>
 		</main>
 	);

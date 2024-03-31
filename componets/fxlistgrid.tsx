@@ -44,8 +44,6 @@ export default function FXListGrid({ props }: { props: FXListProps[] }) {
 		};
 	});
 
-	console.log(result);
-
 	return (
 		<DataGrid
 			rows={result}

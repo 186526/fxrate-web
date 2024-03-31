@@ -46,7 +46,7 @@ export default function Index({
 
 									data[x].type.middle = resp[toCurrency].middle;
 
-									data[x].type.buy = {
+									data[x].type.sell = {
 										cash: resp[toCurrency].cash,
 										remit: resp[toCurrency].remit,
 									};
@@ -68,7 +68,7 @@ export default function Index({
 										type: {},
 									};
 
-									data[x].type.sell = {
+									data[x].type.buy = {
 										cash: resp[fromCurrency].cash,
 										remit: resp[fromCurrency].remit,
 									};
