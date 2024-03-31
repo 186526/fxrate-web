@@ -17,15 +17,11 @@ async function showCurrencyAllRates() {
 
 	FXRate.batch();
 
-	for (let x of sources) {
-		FXRate.listCurrencies(
-			x,
-			((x) => {
-				return (resp) => {
-					answer[x] = resp.currency;
-				};
-			})(x)
-		);
+	for (let k of sources) {
+		const x = k;
+		FXRate.listCurrencies(x, (resp) => {
+			answer[x] = resp.currency;
+		});
 	}
 
 	await FXRate.done();
