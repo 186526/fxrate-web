@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 import buildId from "next-build-id";
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const nextConfig = {
 	eslint: {
