@@ -24,7 +24,7 @@ const columns: GridColDef[] = [
 	{ field: "buyCash", headerName: "购钞价" },
 	{ field: "buyRemit", headerName: "购汇价" },
 	{ field: "sellCash", headerName: "结钞价" },
-	{ field: "sellRemit", headerName: "购汇价" },
+	{ field: "sellRemit", headerName: "结汇价" },
 	{ field: "middle", headerName: "中间价" },
 	{ field: "updated", headerName: "更新时间" },
 ];
