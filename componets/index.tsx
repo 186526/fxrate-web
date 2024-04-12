@@ -20,72 +20,86 @@ export default function Index({
 	const [result, setResult] = useState<FXListProps[]>([]);
 
 	useEffect(() => {
-		const FXRate = new FXRates(
-			new URL("https://fxrate.186526.eu.org/v1/jsonrpc")
-		);
-
 		const fetchData = async () => {
 			const data: { [source: string]: FXListProps } = {};
 			setIsLoading(true);
 			try {
-				FXRate.batch();
-
 				for (let k in currencies) {
+					const FXRate = new FXRates(
+						new URL("https://fxrate.186526.eu.org/v1/jsonrpc")
+					);
+
+					FXRate.batch();
+
 					const x = k;
-					if (currencies[x].includes(fromCurrency)) {
-						FXRate.listFXRates(
+					if (
+						currencies[x].includes(fromCurrency) &&
+						currencies[x].includes(toCurrency)
+					) {
+						FXRate.getFXRate(
 							x,
 							fromCurrency,
-							(resp) => {
-								if (resp[toCurrency]) {
-									data[x] = data[x] ?? {
-										name: x,
-										updated: resp[toCurrency].updated,
-										type: {},
-									};
-
-									data[x].type.middle = resp[toCurrency].middle;
-
-									data[x].type.sell = {
-										cash: resp[toCurrency].cash,
-										remit: resp[toCurrency].remit,
-									};
-								}
-							},
-							5
-						);
-					}
-
-					if (currencies[x].includes(toCurrency)) {
-						FXRate.listFXRates(
-							x,
 							toCurrency,
 							(resp) => {
-								if (resp[fromCurrency]) {
-									data[x] = data[x] ?? {
-										name: x,
-										updated: resp[fromCurrency].updated,
-										type: {},
-									};
-
-									data[x].type.buy = {
-										cash: resp[fromCurrency].cash,
-										remit: resp[fromCurrency].remit,
-									};
+								if (typeof resp != "object") {
+									return;
 								}
+
+								data[x] = data[x] ?? {
+									name: x,
+									updated: resp.updated,
+									type: {},
+								};
+
+								data[x].type.middle = resp.middle;
+
+								data[x].type.sell = {
+									cash: resp.cash,
+									remit: resp.remit,
+								};
 							},
+							"all",
+							5
+						);
+
+						FXRate.getFXRate(
+							x,
+							toCurrency,
+							fromCurrency,
+							(resp) => {
+								if (typeof resp != "object") {
+									return;
+								}
+
+								data[x] = data[x] ?? {
+									name: x,
+									updated: resp.updated,
+									type: {},
+								};
+
+								data[x].type.buy = {
+									cash: resp.cash,
+									remit: resp.remit,
+								};
+							},
+							"all",
 							5,
 							100,
 							0,
 							true
 						);
 					}
+
+					FXRate.done()
+						.catch((e) => {
+							console.error("Error geting currency details:", e);
+						})
+						.then(() => {
+							setResult(Object.values(data));
+						});
 				}
 
-				await FXRate.done();
-
 				setIsLoading(false);
-				setResult(Object.values(data));
 			} catch (error) {
 				console.error("Error geting currency details:", error);
 			}
