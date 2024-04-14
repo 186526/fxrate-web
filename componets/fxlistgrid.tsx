@@ -31,8 +31,6 @@ const columns: GridColDef[] = [
 
 const nameMapping: { [x: string]: string } = {
 	pboc: "中国人民银行",
-	cibHuanyu: "兴业寰宇",
-	cib: "兴业银行",
 	unionpay: "银联",
 	mastercard: "MasterCard",
 	wise: "Wise",
@@ -44,8 +42,11 @@ const nameMapping: { [x: string]: string } = {
 	ccb: "中国建设银行",
 	psbc: "邮政储蓄银行",
 	bocom: "交通银行",
+	cibHuanyu: "兴业寰宇",
+	cib: "兴业银行",
 	"hsbc.cn": "汇丰中国",
 	"hsbc.hk": "汇丰香港",
+	"hsbc.au": "汇丰澳洲",
 };
 
 function getName(name: string): string {
