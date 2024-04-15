@@ -35,6 +35,7 @@ const nameMapping: { [x: string]: string } = {
 	mastercard: "MasterCard",
 	wise: "Wise",
 	visa: "Visa",
+	jcb: "JCB",
 	abc: "中国农业银行",
 	cmb: "招商银行",
 	icbc: "中国工商银行",
