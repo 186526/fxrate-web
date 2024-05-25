@@ -45,6 +45,8 @@ export default function Index({
 						currencies[x].includes(toCurrency) &&
 						currencies[x].includes(fromCurrency)
 					) {
+						console.log(`Getting ${x}...`);
+
 						FXRate.getFXRate(
 							x,
 							toCurrency,
