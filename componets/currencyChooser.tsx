@@ -8,10 +8,7 @@ import Box from "@mui/material/Box";
 import TextField from "@mui/material/TextField";
 
 import IconButton from "@mui/material/IconButton";
-import LoadingButton from "@mui/lab/LoadingButton";
 import { East, West, North, South } from "@mui/icons-material";
-
-import Grid from "@mui/material/Unstable_Grid2";
 
 import { code } from "currency-codes-ts";
 
@@ -47,19 +44,19 @@ const mapCurrency2Country = (currency: string) =>
 
 export default function CurrencyChooser({
 	currencies,
-	fromCurrency,
 	toCurrency,
-	setFromCurrency,
+	fromCurrency,
 	setToCurrency,
+	setFromCurrency,
 	reverse,
 	setReverse,
 	isLoading,
 }: {
 	currencies: string[];
-	fromCurrency: string;
 	toCurrency: string;
-	setFromCurrency: (v: string) => void;
+	fromCurrency: string;
 	setToCurrency: (v: string) => void;
+	setFromCurrency: (v: string) => void;
 	reverse: boolean;
 	setReverse: (v: boolean) => void;
 	isLoading: boolean;
@@ -111,27 +108,6 @@ export default function CurrencyChooser({
 	return (
 		<div>
 			<Autocomplete
-				id="from-currency"
-				options={result}
-				autoHighlight
-				clearOnBlur
-				selectOnFocus
-				onChange={(event, value) => setFromCurrency(value?.code ?? "USD")}
-				getOptionLabel={(option) => option?.label ?? ""}
-				defaultValue={result.find((k) => k?.code == fromCurrency)}
-				renderOption={renderOption}
-				renderInput={renderInput("From Currency")}
-			></Autocomplete>
-
-			<IconButton
-				aria-label="exchange"
-				// onClick={() => setReverse(!reverse)}
-				size="large"
-			>
-				{reverse ? <North /> : <South />}
-			</IconButton>
-
-			<Autocomplete
 				id="to-currency"
 				options={result}
 				autoHighlight
@@ -139,9 +115,30 @@ export default function CurrencyChooser({
 				selectOnFocus
 				onChange={(event, value) => setToCurrency(value?.code ?? "USD")}
 				getOptionLabel={(option) => option?.label ?? ""}
-				renderOption={renderOption}
 				defaultValue={result.find((k) => k?.code == toCurrency)}
+				renderOption={renderOption}
 				renderInput={renderInput("To Currency")}
+			></Autocomplete>
+
+			<IconButton
+				aria-label="exchange"
+				// onClick={() => setReverse(!reverse)}
+				size="large"
+			>
+				{reverse ? <South /> : <North />}
+			</IconButton>
+
+			<Autocomplete
+				id="from-currency"
+				options={result}
+				autoHighlight
+				clearOnBlur
+				selectOnFocus
+				onChange={(event, value) => setFromCurrency(value?.code ?? "USD")}
+				getOptionLabel={(option) => option?.label ?? ""}
+				renderOption={renderOption}
+				defaultValue={result.find((k) => k?.code == fromCurrency)}
+				renderInput={renderInput("From Currency")}
 			></Autocomplete>
 		</div>
 	);

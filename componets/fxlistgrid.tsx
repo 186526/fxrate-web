@@ -48,7 +48,7 @@ const nameMapping: { [x: string]: string } = {
 	"hsbc.cn": "汇丰中国",
 	"hsbc.hk": "汇丰香港",
 	"hsbc.au": "汇丰澳洲",
- "citic.cn": "信银中国",
+	"citic.cn": "信银中国",
 };
 
 function getName(name: string): string {

@@ -1,17 +1,26 @@
 "use client";
 import CurrencyChooser from "./currencyChooser";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import FXListGrid, { FXListProps } from "./fxlistgrid";
 
 import FXRates from "@/lib/fxrate/src/client";
+
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
 
 export default function Index({
 	currencies,
 }: {
 	currencies: { [source: string]: string[] };
 }) {
-	const [fromCurrency, setFromCurrency] = useState<string>("USD");
-	const [toCurrency, setToCurrency] = useState<string>("CNY");
+	const searchParams = useSearchParams();
+	const router = useRouter();
+	const pathname = usePathname();
+
+	const defaultToCurrency = searchParams.get("to") ?? "USD";
+	const defaultFromCurrency = searchParams.get("from") ?? "CNY";
+
+	const [toCurrency, setToCurrency] = useState<string>(defaultToCurrency);
+	const [fromCurrency, setFromCurrency] = useState<string>(defaultFromCurrency);
 
 	const [reverse, setReverse] = useState<boolean>(false);
 
@@ -33,13 +42,13 @@ export default function Index({
 
 					const x = k;
 					if (
-						currencies[x].includes(fromCurrency) &&
-						currencies[x].includes(toCurrency)
+						currencies[x].includes(toCurrency) &&
+						currencies[x].includes(fromCurrency)
 					) {
 						FXRate.getFXRate(
 							x,
-							fromCurrency,
 							toCurrency,
+							fromCurrency,
 							(resp) => {
 								if (typeof resp != "object") {
 									return;
@@ -64,8 +73,8 @@ export default function Index({
 
 						FXRate.getFXRate(
 							x,
-							toCurrency,
 							fromCurrency,
+							toCurrency,
 							(resp) => {
 								if (typeof resp != "object") {
 									return;
@@ -106,7 +115,15 @@ export default function Index({
 		};
 
 		fetchData();
-	}, [fromCurrency, toCurrency, currencies]);
+	}, [toCurrency, fromCurrency, currencies]);
+
+	useEffect(() => {
+		const params = new URLSearchParams();
+		params.set("from", fromCurrency);
+		params.set("to", toCurrency);
+
+		router.push(pathname + "?" + params.toString());
+	}, [toCurrency, fromCurrency]);
 
 	return (
 		<>
@@ -116,10 +133,10 @@ export default function Index({
 						new Set(Object.values(currencies).flat(Infinity))
 					) as string[]
 				}
-				fromCurrency={fromCurrency}
 				toCurrency={toCurrency}
-				setFromCurrency={setFromCurrency}
+				fromCurrency={fromCurrency}
 				setToCurrency={setToCurrency}
+				setFromCurrency={setFromCurrency}
 				reverse={reverse}
 				setReverse={setReverse}
 				isLoading={isLoading}
