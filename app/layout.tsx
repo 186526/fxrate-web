@@ -16,6 +16,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <script defer src="https://analytics.186526.net/script.js" data-website-id="8d0c94df-838f-45ac-9ea9-218603f061a4"></script>
       <body className={inter.className}>{children}</body>
     </html>
   );
