@@ -1,6 +1,7 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 
 import { zhCN } from "@mui/x-data-grid/locales";
+import { sourceNamesInZH } from "@/lib/fxrate/src/handler/rss";
 
 export interface FXListProps {
 	name: string;
@@ -29,29 +30,7 @@ const columns: GridColDef[] = [
 	{ field: "updated", headerName: "更新时间", width: 300 },
 ];
 
-const nameMapping: { [x: string]: string } = {
-	pboc: "中国人民银行",
-	unionpay: "银联",
-	mastercard: "MasterCard",
-	wise: "Wise",
-	visa: "Visa",
-	jcb: "JCB",
-	abc: "中国农业银行",
-	cmb: "招商银行",
-	icbc: "中国工商银行",
-	boc: "中国银行",
-	ccb: "中国建设银行",
-	psbc: "邮政储蓄银行",
-	bocom: "交通银行",
-	cibHuanyu: "兴业寰宇",
-	cib: "兴业银行",
-	"hsbc.cn": "汇丰中国",
-	"hsbc.hk": "汇丰香港",
-	"hsbc.au": "汇丰澳洲",
-	"citic.cn": "信银中国",
-	spdb: "浦发银行",
-	'ncb.cn': "南商中国"
-};
+const nameMapping: { [x: string]: string } = sourceNamesInZH;
 
 function getName(name: string): string {
 	if (nameMapping[name]) {
