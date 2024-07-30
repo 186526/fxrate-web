@@ -1,7 +1,7 @@
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
 
 import { zhCN } from "@mui/x-data-grid/locales";
-import { sourceNamesInZH } from "@/lib/fxrate/src/handler/rss";
+import { sourceNamesInZH } from "@/lib/fxrate/src/constant";
 
 export interface FXListProps {
 	name: string;
