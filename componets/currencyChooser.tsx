@@ -21,6 +21,8 @@ const countries = getAllCountries()
 			!(
 				(x.currency == "USD" && x.alpha2 != "US") ||
 				(x.currency == "EUR" && x.alpha2 != "EU")
+||  
+    (x.currency == "GBP" && x.alpha2 != "GB")
 			)
 	)
 	.map((x) => {
