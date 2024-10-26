@@ -1,6 +1,8 @@
 "use client";
 import * as React from "react";
 
+import { useSearchParams, useRouter, usePathname } from "next/navigation";
+
 import Autocomplete, {
 	AutocompleteRenderInputParams,
 } from "@mui/material/Autocomplete";
@@ -13,6 +15,8 @@ import { East, West, North, South } from "@mui/icons-material";
 import { code } from "currency-codes-ts";
 
 import { getAllCountries } from "country-locale-map";
+
+import { getCurrenciesDetails } from "@/componets/tools";
 
 const countries = getAllCountries()
 	.sort()
@@ -51,17 +55,24 @@ export default function CurrencyChooser({
 	setFromCurrency,
 	reverse,
 	setReverse,
-	isLoading,
+	setIsLoading,
+	setResult,
+	rawCurrencies,
 }: {
 	currencies: string[];
 	toCurrency: string;
 	fromCurrency: string;
+	rawCurrencies: { [source: string]: string[] };
 	setToCurrency: (v: string) => void;
 	setFromCurrency: (v: string) => void;
+	setResult: (v: any) => void;
 	reverse: boolean;
 	setReverse: (v: boolean) => void;
-	isLoading: boolean;
+	setIsLoading: (v: boolean) => void;
 }) {
+	const router = useRouter();
+	const pathname = usePathname();
+
 	const result = currencies
 		.map((currency) => {
 			const option = code(currency);
@@ -105,6 +116,26 @@ export default function CurrencyChooser({
 		);
 		return renderInput;
 	}
+
+	const searchParams = useSearchParams();
+
+	React.useEffect(() => {
+		setIsLoading(true);
+
+		if(toCurrency == searchParams.get("to") && fromCurrency == searchParams.get("from")) {
+			return;
+		}
+
+		const params = new URLSearchParams();
+		params.set("from", fromCurrency);
+		params.set("to", toCurrency);
+
+		router.push(pathname + "?" + params.toString());
+
+		getCurrenciesDetails(rawCurrencies, toCurrency, fromCurrency, setResult);
+
+		setIsLoading(false);
+	}, [toCurrency, fromCurrency, rawCurrencies]);
 
 	return (
 		<div>

@@ -39,19 +39,22 @@ function getName(name: string): string {
 }
 
 export default function FXListGrid({ props }: { props: FXListProps[] }) {
-	const result = props.sort().map((k, i) => {
-		k.id = i + 1;
-		return {
-			id: k.id,
-			name: getName(k.name),
-			updated: k.updated.toString(),
-			buyCash: k.type.buy.cash,
-			sellCash: k.type.sell.cash,
-			buyRemit: k.type.buy.remit,
-			sellRemit: k.type.sell.remit,
-			middle: k.type.middle,
-		};
-	});
+	const result = props
+		.filter((k) => k !== "preload")
+		.sort()
+		.map((k, i) => {
+			k.id = i + 1;
+			return {
+				id: k.id,
+				name: getName(k.name),
+				updated: k.updated.toString(),
+				buyCash: k.type.buy.cash,
+				sellCash: k.type.sell.cash,
+				buyRemit: k.type.buy.remit,
+				sellRemit: k.type.sell.remit,
+				middle: k.type.middle,
+			};
+		});
 
 	return (
 		<DataGrid

@@ -1,41 +1,37 @@
 "use sever";
 
 import Index from "@/componets/index";
-import FXRates from "@/lib/fxrate/src/client";
 
 import packageJson from "../package.json";
 import buildId from "next-build-id";
 
-const FXRate = new FXRates(new URL("https://fxrate.186526.eu.org/v1/jsonrpc"));
-
+import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
-async function showCurrencyAllRates() {
-	const Info = await FXRate.info();
+import {
+	showCurrencyAllRates,
+	getCurrenciesDetails,
+	FXRate,
+} from "@/componets/tools";
 
-	const sources: string[] = (Info as any).sources;
+export default async function Home({
+	searchParams,
+}: {
+	searchParams: Promise<{ [key: string]: string }>;
+}) {
+	const result = await getCurrenciesDetails(
+		await showCurrencyAllRates(),
+		(await searchParams)["to"] ?? "USD",
+		(await searchParams)["from"] ?? "CNY"
+	);
 
-	const answer: { [source: string]: string[] } = {};
-
-	FXRate.batch();
-
-	for (let k of sources) {
-		const x = k;
-		FXRate.listCurrencies(x, (resp) => {
-			answer[x] = resp.currency;
-		});
-	}
-
-	await FXRate.done();
-
-	return answer;
-}
-
-export default async function Home() {
 	return (
 		<main style={{ width: "100%" }}>
 			<Suspense>
-				<Index currencies={await showCurrencyAllRates()}></Index>
+				<Index
+					currencies={await showCurrencyAllRates()}
+					defaultResult={result}
+				></Index>
 			</Suspense>
 			<code>{((await FXRate.info()) as any).version}</code>
 			<br />
