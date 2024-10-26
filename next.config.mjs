@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 import buildId from "next-build-id";
-import { dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -20,6 +20,7 @@ const nextConfig = {
 	},
 	generateBuildId: async () =>
 		await buildId({ dir: __dirname, describe: true }),
+	output: "standalone",
 };
 
 export default nextConfig;
