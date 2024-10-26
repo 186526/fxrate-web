@@ -122,20 +122,26 @@ export default function CurrencyChooser({
 	React.useEffect(() => {
 		setIsLoading(true);
 
-		if(toCurrency == searchParams.get("to") && fromCurrency == searchParams.get("from")) {
+		if (
+			(toCurrency == searchParams.get("to") &&
+				fromCurrency == searchParams.get("from")) ||
+			(searchParams.get("from") == null && searchParams.get("to") == null)
+		) {
 			return;
 		}
-
-		const params = new URLSearchParams();
-		params.set("from", fromCurrency);
-		params.set("to", toCurrency);
-
-		router.push(pathname + "?" + params.toString());
 
 		getCurrenciesDetails(rawCurrencies, toCurrency, fromCurrency, setResult);
 
 		setIsLoading(false);
 	}, [toCurrency, fromCurrency, rawCurrencies]);
+
+	React.useEffect(() => {
+		const params = new URLSearchParams();
+		params.set("from", fromCurrency);
+		params.set("to", toCurrency);
+
+		router.push(pathname + "?" + params.toString());
+	}, [toCurrency, fromCurrency]);
 
 	return (
 		<div>

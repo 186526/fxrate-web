@@ -1,7 +1,10 @@
 import { FXListProps } from "@/componets/fxlistgrid";
 import FXRates from "@/lib/fxrate/src/client";
+import { LRUCache } from "lru-cache";
 
-export const FXRate = new FXRates(new URL("https://fxrate.186526.dev/v1/jsonrpc"));
+export const FXRate = new FXRates(
+	new URL("https://fxrate.186526.dev/v1/jsonrpc")
+);
 
 export async function showCurrencyAllRates() {
 	const Info = await FXRate.info();
@@ -24,6 +27,11 @@ export async function showCurrencyAllRates() {
 	return answer;
 }
 
+const cache = new LRUCache<string, any>({
+	max: 100,
+	ttl: 1000 * 60 * 5,
+});
+
 export async function getCurrenciesDetails(
 	currencies: { [source: string]: string[] },
 	toCurrency: string,
@@ -31,6 +39,12 @@ export async function getCurrenciesDetails(
 	setResult?: (result: FXListProps[]) => void
 ): Promise<FXListProps[]> {
 	const data: { [source: string]: FXListProps } = {};
+
+	if (cache.has(toCurrency + fromCurrency)) {
+		if (setResult) setResult(cache.get(toCurrency + fromCurrency));
+		return cache.get(toCurrency + fromCurrency);
+	}
+
 	try {
 		for (let k in currencies) {
 			FXRate.batch();
@@ -40,8 +54,6 @@ export async function getCurrenciesDetails(
 				currencies[x].includes(toCurrency) &&
 				currencies[x].includes(fromCurrency)
 			) {
-				console.log(`Getting ${x}...`);
-
 				FXRate.getFXRate(
 					x,
 					toCurrency,
@@ -107,5 +119,8 @@ export async function getCurrenciesDetails(
 	} catch (error) {
 		console.error("Error geting currency details:", error);
 	}
+
+	if (setResult) setResult(Object.values(data));
+	cache.set(toCurrency + fromCurrency, Object.values(data));
 	return Object.values(data);
 }

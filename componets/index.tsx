@@ -44,7 +44,7 @@ export default function Index({
 				setIsLoading={setIsLoading}
 				rawCurrencies={currencies}
 			></CurrencyChooser>
-			<FXListGrid props={result}></FXListGrid>;
+			<FXListGrid props={result}></FXListGrid>
 		</>
 	);
 }
