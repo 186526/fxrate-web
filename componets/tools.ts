@@ -3,7 +3,9 @@ import FXRates from "@/lib/fxrate/src/client";
 import { LRUCache } from "lru-cache";
 
 export const FXRate = new FXRates(
-	new URL("https://fxrate.186526.dev/v1/jsonrpc")
+	process.env.FXRATE_API
+		? new URL(process.env.FXRATE_API)
+		: new URL("https://fxrate.186526.dev/v1/jsonrpc")
 );
 
 export async function showCurrencyAllRates() {
@@ -46,9 +48,9 @@ export async function getCurrenciesDetails(
 	}
 
 	try {
-		for (let k in currencies) {
-			FXRate.batch();
+		FXRate.batch();
 
+		for (let k in currencies) {
 			const x = k;
 			if (
 				currencies[x].includes(toCurrency) &&
@@ -107,15 +109,15 @@ export async function getCurrenciesDetails(
 					true
 				);
 			}
-
-			await FXRate.done()
-				.catch((e) => {
-					console.error("Error geting currency details:", e);
-				})
-				.then(() => {
-					if (setResult) setResult(Object.values(data));
-				});
 		}
+
+		await FXRate.done()
+			.catch((e) => {
+				console.error("Error geting currency details:", e);
+			})
+			.then(() => {
+				if (setResult) setResult(Object.values(data));
+			});
 	} catch (error) {
 		console.error("Error geting currency details:", error);
 	}
