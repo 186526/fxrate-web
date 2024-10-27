@@ -24,7 +24,6 @@ COPY . .
 
 RUN apk add --no-cache procps
 
-ENV FXRATE_API=http://172.17.0.1:9091
 RUN cd /app && yarn run build
 
 # Production image, copy all the files and run next
