@@ -22,7 +22,10 @@ COPY . .
 # Uncomment the following line in case you want to disable telemetry during the build.
 # ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN yarn run build
+RUN apk add --no-cache procps
+
+ENV FXRATE_API=http://172.17.0.1:9091
+RUN cd /app && yarn run build
 
 # Production image, copy all the files and run next
 FROM base AS runner
