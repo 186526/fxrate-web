@@ -58,6 +58,7 @@ spec:
   - hosts:
     - fxrate.ingress.loadbalancer.rbx1.sunoaki.net
     - fxrate-web.ingress.loadbalancer.rbx1.sunoaki.net
+    - fxrate.186526.dev
     secretName: fxrate-certs
   rules:
   - host: fxrate.186526.dev
