@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fxrate
+  labels:
+    name: fxrate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fxrate
+  namespace: fxrate
+spec:
+  selector:
+    app: fxrate
+  ports:
+    - port: 8080
+      name: web
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fxrate
+  namespace: fxrate
+spec:
+  selector:
+    matchLabels:
+      app: fxrate
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app: fxrate
+    spec:
+      containers:
+        - name: fxrate
+          image: ghcr.io/186526/fxrate:main
+          ports:
+            - containerPort: 8080
+              name: web
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "50Mi"
+            limits:
+              cpu: "500m"
+              memory: "750Mi"
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fxrate
+  namespace: fxrate
+  annotations:
+    cert-manager.io/cluster-issuer: 'google-acme'
+spec:
+  tls:
+  - hosts:
+    - fxrate.ingress.loadbalancer.rbx1.sunoaki.net
+    - fxrate.186526.dev
+    - fxrate-web.ingress.loadbalancer.rbx1.sunoaki.net
+    secretName: fxrate-certs
+  rules:
+  - host: fxrate.ingress.loadbalancer.rbx1.sunoaki.net
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: fxrate
+            port:
+              number: 8080
