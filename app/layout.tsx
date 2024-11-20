@@ -21,7 +21,7 @@ export default function RootLayout({
 					async
 					defer
 					src="https://analytics.186526.net/script.js"
-					data-website-id="8d0c94df-838f-45ac-9ea9-218603f061a4"
+					data-website-id="ca55ec9e-d5f0-4c73-8abd-f7e2272225ed"
 				></script>
 			</head>
 			<body className={inter.className}>{children}</body>

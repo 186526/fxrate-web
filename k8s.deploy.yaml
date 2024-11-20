@@ -26,7 +26,7 @@ spec:
   selector:
     matchLabels:
       app: fxrate
-  replicas: 2
+  replicas: 1
   template:
     metadata:
       labels:
@@ -57,10 +57,19 @@ spec:
   tls:
   - hosts:
     - fxrate.ingress.loadbalancer.rbx1.sunoaki.net
-    - fxrate.186526.dev
     - fxrate-web.ingress.loadbalancer.rbx1.sunoaki.net
     secretName: fxrate-certs
   rules:
+  - host: fxrate.186526.dev
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: fxrate
+            port:
+              number: 8080
   - host: fxrate.ingress.loadbalancer.rbx1.sunoaki.net
     http:
       paths:
@@ -71,3 +80,4 @@ spec:
             name: fxrate
             port:
               number: 8080
+---
