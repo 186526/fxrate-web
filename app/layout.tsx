@@ -6,7 +6,7 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
 	title: "FXRate-web",
-	description: "Yet another FX Rates helper | by @real186526.",
+	description: "Yet another FX Rates helper | by @real186526",
 };
 
 export default function RootLayout({

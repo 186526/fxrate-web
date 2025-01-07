@@ -44,6 +44,13 @@ countries.push({
 	emoji: "🇪🇺",
 });
 
+countries.push({
+	alpha2: "CN",
+	name: "China",
+	currency: "CNH",
+	emoji: "🇨🇳",
+})
+
 const mapCurrency2Country = (currency: string) =>
 	countries.find((x) => x.currency === currency);
 
@@ -75,7 +82,10 @@ export default function CurrencyChooser({
 
 	const result = currencies
 		.map((currency) => {
-			const option = code(currency);
+			const option = currency === "CNH" ? {
+				code: "CNH",
+				currency: "Yuan Renmenbi (Oversea)",
+			} : code(currency);
 			const country = mapCurrency2Country(currency);
 			if (!country) return;
 			return {
@@ -133,6 +143,7 @@ export default function CurrencyChooser({
 		getCurrenciesDetails(rawCurrencies, toCurrency, fromCurrency, setResult);
 
 		setIsLoading(false);
+	// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [toCurrency, fromCurrency, rawCurrencies]);
 
 	React.useEffect(() => {
@@ -141,6 +152,7 @@ export default function CurrencyChooser({
 		params.set("to", toCurrency);
 
 		router.push(pathname + "?" + params.toString());
+	// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [toCurrency, fromCurrency]);
 
 	return (
