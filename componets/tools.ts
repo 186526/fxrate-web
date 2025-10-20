@@ -5,7 +5,7 @@ import { LRUCache } from "lru-cache";
 export const FXRate = new FXRates(
 	process.env.FXRATE_API
 		? new URL(process.env.FXRATE_API)
-		: new URL("https://fxrate.186526.dev/v1/jsonrpc")
+		: new URL("https://fxrate.sunoaki.net/v1/jsonrpc")
 );
 
 export async function showCurrencyAllRates() {
