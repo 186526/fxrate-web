@@ -167,7 +167,7 @@ export default function CurrencyChooser({
 				getOptionLabel={(option) => option?.label ?? ""}
 				defaultValue={result.find((k) => k?.code == toCurrency)}
 				renderOption={renderOption}
-				renderInput={renderInput("To Currency")}
+				renderInput={renderInput("Converted Currency")}
 			></Autocomplete>
 
 			<IconButton
@@ -188,7 +188,7 @@ export default function CurrencyChooser({
 				getOptionLabel={(option) => option?.label ?? ""}
 				renderOption={renderOption}
 				defaultValue={result.find((k) => k?.code == fromCurrency)}
-				renderInput={renderInput("From Currency")}
+				renderInput={renderInput("Base Currency")}
 			></Autocomplete>
 		</div>
 	);

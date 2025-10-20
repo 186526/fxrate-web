@@ -20,7 +20,7 @@ export default function RootLayout({
 				<script
 					async
 					defer
-					src="https://analytics.186526.net/script.js"
+					src="https://analytics.real186526.cn/script.js"
 					data-website-id="ca55ec9e-d5f0-4c73-8abd-f7e2272225ed"
 				></script>
 			</head>
