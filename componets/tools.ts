@@ -1,128 +1,503 @@
-import { FXListProps } from "@/componets/fxlistgrid";
-import FXRates from "@/lib/fxrate/src/client";
-import { LRUCache } from "lru-cache";
+import { FXListProps } from "@/componets/fxlistgrid"
+import FXRates, { infoResponse, fxRateResponse } from "@/lib/fxrate/src/client"
+import { LRUCache } from "lru-cache"
 
 export const FXRate = new FXRates(
 	process.env.FXRATE_API
 		? new URL(process.env.FXRATE_API)
-		: new URL("https://fxrate.sunoaki.net/v1/jsonrpc")
-);
+		: new URL(
+				"/api/fxrate",
+				typeof window == "undefined"
+					? "http://localhost:3000"
+					: window.location.origin
+		  )
+)
 
-export async function showCurrencyAllRates() {
-	const Info = await FXRate.info();
-
-	const sources: string[] = (Info as any).sources;
-
-	const answer: { [source: string]: string[] } = {};
-
-	FXRate.batch();
-
-	for (let k of sources) {
-		const x = k;
-		FXRate.listCurrencies(x, (resp) => {
-			answer[x] = resp.currency;
-		});
-	}
-
-	await FXRate.done();
-
-	return answer;
+// 后端个别源（如 cfets）可能返回 "Invalid Date" 字符串：
+// 无效日期回退为当前时间，避免 toISOString() 抛 RangeError 导致整页 500
+export function safeUpdated(v: Date | string | number | undefined): Date {
+	const d = new Date(v as string | number | Date)
+	return Number.isNaN(d.getTime()) ? new Date() : d
 }
 
-const cache = new LRUCache<string, any>({
+// 不参与最优价高亮的数据源：央行参考牌价不可成交，高亮会误导
+export const bestPriceExcludeSources = new Set(["pboc"])
+
+// 反爬抓取慢的数据源（Visa 走 headless chromium 降级，查询不支持的货币时可达 30s+）：
+// 单对视图拆出主批量单独请求，矩阵视图默认不请求、点击后单独加载
+// （MasterCard 实测毫秒级，不在此列，单对走主批量、矩阵默认自动加载）
+export const SLOW_SOURCES = new Set(["visa"])
+
+// 各来源官方外汇牌价页 URL（用于银行行跳转"查看官方牌价"）。
+// 全部经 exa 搜索确认为各银行官网公开牌价栏目；boc/ccb/cmb/icbc/abc/bocom 另经 Chrome 实测打开。
+export const sourceRatesURL: Record<string, string> = {
+	"pboc": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125217/125925/index.html",
+	"unionpay": "https://www.unionpayintl.com/cn/rate/",
+	"mastercard": "https://www.mastercard.com/cn/zh/personal/get-support/currency-exchange-rate-converter.html",
+	"wise": "https://wise.com/zh-cn/currency-converter/",
+	"visa": "https://www.visa.cn/support/consumer/travel-support/exchange-rate-calculator.html",
+	"jcb": "https://www.specialoffers.jcb/zh-tw/services/other/rate/",
+	"abc": "https://ewealth.abchina.com.cn/ForeignExchange/ListPrice/",
+	"cmb": "https://fx.cmbchina.com/hq",
+	"icbc": "https://www.icbc.com.cn/column/1438058341489590354.html",
+	"boc": "https://www.boc.cn/sourcedb/whpj/",
+	"bochk": "https://www.bochk.com/sc/investment/rates/fxrates.html",
+	"ccb": "https://www2.ccb.com/chn/forex/exchange-quotations.shtml",
+	"psbc": "https://www.psbc.com/cn/common/bjfw/whpjcx/",
+	"bocom": "https://www.bankcomm.com/BankCommSite/shtml/jyjr/cn/7158/7161/8091/list.shtml",
+	"cibHuanyu": "https://www.cib.com.cn/cn/demo/corporate/HeadWeb/customer/foreignBulletin/index.html?FUNID=580000%7C690050",
+	"cib": "https://www.cib.com.cn/cn/demo/corporate/HeadWeb/customer/foreignBulletin/index.html?FUNID=580000%7C690050",
+	"hsbc.cn": "https://www.services.cn-banking.hsbc.com.cn/PublicContent/common/rate/zh/exchange-rates.html",
+	"hsbc.hk": "https://www.hsbc.com.hk/investments/products/foreign-exchange/currency-rate/",
+	"hsbc.au": "https://www.hsbc.com.au/foreign-exchange/real-time-rates/",
+	"citic.cn": "https://go.citicbank.com/ywrk_whpj",
+	"spdb": "https://www.spdb.com.cn/wh_pj/index.shtml",
+	"ncb.cn": "https://www.ncbchina.cn/website/ncb-zh/view/marketFinance/market_02_01.html",
+	"ncb.hk": "https://www.ncb.com.hk/nanyang_bank/zh-hans/html/14ab.html",
+	"xib": "https://www.xib.com.cn/foreign-exchange/",
+	"pab": "https://bank.pingan.com/geren/waihuipaijia.shtml",
+	"ceb": "https://www.cebbank.com/site/ygzx/whpj/index.html",
+	"cfets": "https://www.chinamoney.com.cn/chinese/index.html",
+	"dbs": "https://www.dbs.com.sg/personal/rates-online/foreign-currency-foreign-exchange.page",
+	"dbs.cn": "https://www.dbs.com.cn/personal/rates-online/foreign-currency-foreign-exchange.page",
+	"dbs.hk": "https://www.dbs.com.hk/personal/rates-online/foreign-currency-foreign-exchange.page",
+	"alipay": "https://render.alipay.com/p/s/currency-converter-sem/",
+}
+
+// 来源是否有官方牌价页链接（无映射的来源返回空）
+export function ratesPageURL(source: string): string | undefined {
+	return sourceRatesURL[source]
+}
+
+// RSS 订阅链接：后端提供 /rss/:from/:to Atom feed（origin 取自 API 端点，兼容本地后端）
+export function rssURL(from: string, to: string): string {
+	return `${FXRate.endpoint.origin}/rss/${from}/${to}`
+}
+
+// SSR 预取超时阈值：超过则放弃服务端预取，降级为客户端加载（保证首屏 HTML 不被慢后端拖住）
+export const SSR_TIMEOUT_MS = 3000
+
+export async function withSSRTimeout<T>(
+	p: Promise<T>,
+	ms = SSR_TIMEOUT_MS
+): Promise<T | null> {
+	return Promise.race([
+		p,
+		new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
+	])
+}
+
+const currenciesCache = new LRUCache<string, { [source: string]: string[] }>({
+	max: 1,
+	ttl: 1000 * 60 * 5,
+})
+
+export async function showCurrencyAllRates(): Promise<{
+	[source: string]: string[]
+}> {
+	const cached = currenciesCache.get("all")
+	if (cached) return cached
+
+	const Info = (await FXRate.info()) as infoResponse
+
+	const sources = Info.sources
+
+	const answer: { [source: string]: string[] } = {}
+
+	FXRate.batch()
+
+	for (let k of sources) {
+		const x = k
+		FXRate.listCurrencies(x, (resp) => {
+			answer[x] = resp.currency
+		})
+	}
+
+	// 部分来源失败（如上游被反爬拦截）时 done() 会抛错：
+	// 返回已成功的部分结果做降级，不要拖垮整个货币列表
+	try {
+		await FXRate.done()
+	} catch (e) {
+		console.error("部分来源货币列表获取失败，使用部分结果:", e)
+	}
+
+	// 只有全部 source 都返回成功才缓存，避免把部分结果缓存 5 分钟
+	if (sources.every((s) => Array.isArray(answer[s]))) {
+		currenciesCache.set("all", answer)
+	}
+
+	return answer
+}
+
+const cache = new LRUCache<string, FXListProps[]>({
 	max: 100,
 	ttl: 1000 * 60 * 5,
-});
+})
+
+const matrixCache = new LRUCache<string, RatesMatrix>({
+	max: 100,
+	ttl: 1000 * 60 * 5,
+})
+
+export interface FXDetailsOptions {
+	amount?: number
+	precision?: number
+	force?: boolean
+	// 启用交叉汇率：后端 BFS 找中间货币路径（如 CNY→CNH 经 HKD 折算），
+	// 有累积误差，默认关闭；响应中会带 path 字段
+	bfs?: boolean
+}
+
+// 交叉汇率响应在 fxRateResponse 基础上多了 path 字段（client 类型未声明，运行时已透传）
+interface FXRateWithPath extends fxRateResponse {
+	path?: string[]
+}
 
 export async function getCurrenciesDetails(
 	currencies: { [source: string]: string[] },
 	toCurrency: string,
 	fromCurrency: string,
-	setResult?: (result: FXListProps[]) => void
+	setResult?: (result: FXListProps[]) => void,
+	options: FXDetailsOptions = {}
 ): Promise<FXListProps[]> {
-	const data: { [source: string]: FXListProps } = {};
+	const { amount = 100, precision = 4, force = false, bfs = false } = options
 
-	if (cache.has(toCurrency + fromCurrency)) {
-		if (setResult) setResult(cache.get(toCurrency + fromCurrency));
-		return cache.get(toCurrency + fromCurrency);
+	const key = `${fromCurrency}-${toCurrency}-${amount}-p${precision}${bfs ? "-bfs" : ""}`
+	if (!force) {
+		const cached = cache.get(key)
+		if (cached) {
+			if (setResult) setResult(cached)
+			return cached
+		}
+	}
+
+	const data: { [source: string]: FXListProps } = {}
+	let failed = false
+	let failedMessage = "获取报价失败：所有数据源均不可用，请稍后重试"
+
+	// 慢源（Visa/MasterCard 反爬抓取可达 30s+）拆出主批量：
+	// 主批量只等快源，慢源单独后台请求，完成后合并回 data 再回调
+	const slowSources = Object.keys(currencies).filter((s) =>
+		SLOW_SOURCES.has(s)
+	)
+	const fastSources = Object.keys(currencies).filter(
+		(s) => !SLOW_SOURCES.has(s)
+	)
+
+	const requestSource = (x: string) => {
+		FXRate.getFXRate(
+			x,
+			toCurrency,
+			fromCurrency,
+			(resp) => {
+				if (typeof resp != "object") {
+					return
+				}
+				const withPath = resp as FXRateWithPath
+
+				data[x] = data[x] ?? {
+					name: x,
+					updated: safeUpdated(resp.updated),
+					type: {},
+				}
+
+				data[x].type.middle = resp.middle
+
+				data[x].type.sell = {
+					cash: resp.cash,
+					remit: resp.remit,
+				}
+
+				if (withPath.path && withPath.path.length > 0) {
+					data[x].path = withPath.path
+				}
+			},
+			"all",
+			precision,
+			amount,
+			0,
+			false,
+			bfs
+		)
+
+		FXRate.getFXRate(
+			x,
+			fromCurrency,
+			toCurrency,
+			(resp) => {
+				if (typeof resp != "object") {
+					return
+				}
+				const withPath = resp as FXRateWithPath
+
+				data[x] = data[x] ?? {
+					name: x,
+					updated: safeUpdated(resp.updated),
+					type: {},
+				}
+
+				// 反向请求（本币→外币）返回的是"卖出价倒数"口径：
+				// resp.cash = amount 本币可换的外币数（如 100 CNY = 12.7857 EUR），
+				// 银行卖出价 = amount 外币折本币 = amount² / resp.cash（如 10000/12.7857 = 782.12）。
+				// 注意：本请求必须用高精度（precision=8）避免反向值被提前舍入导致换算误差放大
+				// （不能用 precision=-1：后端对 Fraction 无限小数会输出 "14.(7642…)" 字符串无法解析），
+				// 换算结果再按请求精度四舍五入
+				const num = (v: unknown): number | undefined => {
+					if (typeof v == "number") return v
+					if (typeof v == "string" && v.trim() != "") {
+						const n = Number(v)
+						return Number.isNaN(n) ? undefined : n
+					}
+					return undefined
+				}
+				const invert = (v: unknown): number | string | undefined => {
+					const n = num(v)
+					if (n == undefined || n == 0) {
+						return typeof v == "boolean"
+							? undefined
+							: (v as number | string | undefined)
+					}
+					const raw = (amount * amount) / n
+					return precision >= 0
+						? Math.round(raw * 10 ** precision) / 10 ** precision
+						: raw
+				}
+
+				data[x].type.buy = {
+					cash: invert(resp.cash),
+					remit: invert(resp.remit),
+				}
+
+				if (withPath.path && withPath.path.length > 0) {
+					data[x].path = withPath.path
+				}
+			},
+			"all",
+			8,
+			amount,
+			0,
+			false,
+			bfs
+		)
 	}
 
 	try {
-		FXRate.batch();
+		FXRate.batch()
 
-		for (let k in currencies) {
-			const x = k;
+		for (const x of fastSources) {
 			if (
-				currencies[x].includes(toCurrency) &&
+				currencies[x].includes(toCurrency) ||
 				currencies[x].includes(fromCurrency)
 			) {
-				FXRate.getFXRate(
-					x,
-					toCurrency,
-					fromCurrency,
-					(resp) => {
-						if (typeof resp != "object") {
-							return;
-						}
-
-						data[x] = data[x] ?? {
-							name: x,
-							updated: resp.updated,
-							type: {},
-						};
-
-						data[x].type.middle = resp.middle;
-
-						data[x].type.sell = {
-							cash: resp.cash,
-							remit: resp.remit,
-						};
-					},
-					"all",
-					5
-				);
-
-				FXRate.getFXRate(
-					x,
-					fromCurrency,
-					toCurrency,
-					(resp) => {
-						if (typeof resp != "object") {
-							return;
-						}
-
-						data[x] = data[x] ?? {
-							name: x,
-							updated: resp.updated,
-							type: {},
-						};
-
-						data[x].type.buy = {
-							cash: resp.cash,
-							remit: resp.remit,
-						};
-					},
-					"all",
-					5,
-					100,
-					0,
-					true
-				);
+				requestSource(x)
 			}
 		}
 
 		await FXRate.done()
-			.catch((e) => {
-				console.error("Error geting currency details:", e);
-			})
-			.then(() => {
-				if (setResult) setResult(Object.values(data));
-			});
 	} catch (error) {
-		console.error("Error geting currency details:", error);
+		console.error("Error getting currency details:", error)
+		failed = true
+		failedMessage =
+			error instanceof Error && /timed out/i.test(error.message)
+				? "请求超时：部分数据源响应缓慢（如 Visa/MasterCard 反爬抓取），请稍后重试"
+				: "获取报价失败：所有数据源均不可用，请稍后重试"
 	}
 
-	if (setResult) setResult(Object.values(data));
-	cache.set(toCurrency + fromCurrency, Object.values(data));
-	return Object.values(data);
+	// 慢源后台单独请求（不阻塞主流程），完成后合并结果再回调一次
+	if (slowSources.length > 0) {
+		const mergeAndNotify = () => {
+			const merged = Object.values(data)
+			if (merged.length > 0) {
+				cache.set(key, merged)
+				if (setResult) setResult(merged)
+			}
+		}
+		;(async () => {
+			try {
+				FXRate.batch()
+				for (const x of slowSources) {
+					if (
+						currencies[x].includes(toCurrency) ||
+						currencies[x].includes(fromCurrency)
+					) {
+						requestSource(x)
+					}
+				}
+				await FXRate.done()
+			} catch (error) {
+				console.error("Error getting slow source details:", error)
+			} finally {
+				mergeAndNotify()
+			}
+		})()
+	}
+
+	const result = Object.values(data)
+
+	// 请求失败不写缓存，保证下次还能重试
+	if (!failed && result.length > 0) {
+		cache.set(key, result)
+	}
+
+	// 全部来源都失败时向上抛错，让调用方显示错误（部分成功仍降级返回）
+	if (failed && result.length == 0) {
+		throw new Error(failedMessage)
+	}
+
+	if (setResult) setResult(result)
+	return result
+}
+
+export interface RatesMatrixCell {
+	middle: number | string | boolean
+	cash?: number | string | boolean
+	remit?: number | string | boolean
+	// 交叉汇率补查时的过桥路径（如 ["CNY","HKD","CNH"]）
+	path?: string[]
+}
+
+export interface RatesMatrix {
+	[source: string]: { [currency: string]: RatesMatrixCell }
+}
+
+export async function getRatesMatrix(
+	currencies: { [source: string]: string[] },
+	from: string,
+	options: {
+		amount?: number
+		precision?: number
+		force?: boolean
+		// 跳过不请求的源（默认跳过反爬慢源，矩阵视图点击后单独加载）
+		skipSources?: Set<string>
+	} = {}
+): Promise<RatesMatrix> {
+	const { amount = 100, precision = 4, force = false, skipSources } = options
+
+	const key = `${from}-${amount}-p${precision}`
+	if (!force) {
+		const cached = matrixCache.get(key)
+		if (cached) return cached
+	}
+
+	const skip = skipSources ?? SLOW_SOURCES
+
+	const data: RatesMatrix = {}
+	let failed = false
+
+	try {
+		FXRate.batch()
+
+		for (let k in currencies) {
+			if (skip.has(k)) continue
+			const x = k
+			FXRate.listFXRates(
+				x,
+				from,
+				(resp) => {
+					const row: { [currency: string]: RatesMatrixCell } = {}
+					for (const currency in resp) {
+						const item = resp[currency]
+						// 不支持的 source（如卡组织全表 403）经 client transform
+						// 会变成 { status, message } 之类非货币条目，跳过
+						if (
+							typeof item != "object" ||
+							item === null ||
+							!("middle" in item) ||
+							currency == "status" ||
+							currency == "message"
+						) {
+							continue
+						}
+						row[currency] = {
+							middle: item.middle,
+							cash: item.cash,
+							remit: item.remit,
+						}
+					}
+					data[x] = row
+				},
+				precision,
+				amount,
+				0,
+				false
+			)
+		}
+
+		await FXRate.done()
+	} catch (error) {
+		console.error("Error getting rates matrix:", error)
+		failed = true
+	}
+
+	if (!failed && Object.keys(data).length > 0) {
+		matrixCache.set(key, data)
+	}
+
+	// 全部来源都失败时向上抛错，让调用方显示错误（部分成功仍降级返回）
+	if (failed && Object.keys(data).length == 0) {
+		throw new Error("获取矩阵失败：所有数据源均不可用，请稍后重试")
+	}
+
+	return data
+}
+
+// 矩阵视图单独查询某个源（Visa 等反爬慢源或全表接口 403 的卡组织源）：
+// 用 getFXRate 逐货币查询（不走 listFXRates 全表——后端对卡组织全表返回 403），
+// 只查该源支持的货币，避免触发不支持的货币导致 chromium 重建超时
+export async function getSourceMatrixRow(
+	source: string,
+	supportedCurrencies: string[],
+	targetCurrencies: string[],
+	from: string,
+	options: {
+		amount?: number
+		precision?: number
+		// 交叉汇率：开启后无直连的货币对经中间货币折算（与单对视图 bfs 一致）
+		bfs?: boolean
+	} = {}
+): Promise<{ [currency: string]: RatesMatrixCell }> {
+	const { amount = 100, precision = 4, bfs = false } = options
+
+	const row: { [currency: string]: RatesMatrixCell } = {}
+	const targets = targetCurrencies.filter((c) =>
+		supportedCurrencies.includes(c)
+	)
+	if (targets.length == 0) return row
+
+	try {
+		FXRate.batch()
+
+		for (const c of targets) {
+			FXRate.getFXRate(
+				source,
+				from,
+				c,
+				(resp) => {
+					if (typeof resp != "object") return
+					const withPath = resp as FXRateWithPath
+					row[c] = {
+						middle: resp.middle,
+						cash: resp.cash,
+						remit: resp.remit,
+						path:
+							withPath.path && withPath.path.length > 0
+								? withPath.path
+								: undefined,
+					}
+				},
+				"all",
+				precision,
+				amount,
+				0,
+				false,
+				bfs
+			)
+		}
+
+		await FXRate.done()
+	} catch (error) {
+		console.error(`Error getting matrix row for ${source}:`, error)
+	}
+
+	return row
 }
