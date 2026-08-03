@@ -35,6 +35,7 @@ import {
 	FXRate,
 	RatesMatrix,
 	SLOW_SOURCES,
+	withSSRTimeout,
 } from "./tools"
 import { useThemeMode } from "./theme"
 import { infoResponse } from "@/lib/fxrate/src/client"
@@ -219,12 +220,23 @@ export default function Index({
 			try {
 				// info() 须在 showCurrencyAllRates 之后串行（后者内部开启 batch，
 				// 并行的 info() 会被吞进批量队列拿不到结果）
-				const cur = await showCurrencyAllRates()
+				// 5s 超时降级：慢源（上游抓取 30s 超时）不应拖住首屏
+				const cur = await withSSRTimeout(
+					showCurrencyAllRates(),
+					5000
+				)
 				if (cancelled) return
-				const info = await FXRate.info()
+				if (!cur) {
+					if (!cancelled) setError("数据加载超时，请稍后刷新重试")
+					return
+				}
+				const info = await withSSRTimeout(
+					Promise.resolve(FXRate.info()),
+					5000
+				)
 				if (cancelled) return
 				setCurrencies(cur)
-				setBackendVersion((info as infoResponse).version)
+				if (info) setBackendVersion((info as infoResponse).version)
 				setError(null)
 			} catch (e) {
 				if (!cancelled) {
