@@ -1,0 +1,12 @@
+/* iOS Safari 兼容性 */
+/* touch-action: manipulation 消除双击缩放延迟，避免快速点击被吞（移动端通用 polyfill） */
+html,
+body {
+	touch-action: manipulation;
+	-webkit-tap-highlight-color: transparent;
+}
+
+/* 旧版 iOS 惯性滚动（overflow 容器内表格滑动更跟手） */
+.MuiTableContainer-root {
+	-webkit-overflow-scrolling: touch;
+}

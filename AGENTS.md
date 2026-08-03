@@ -25,6 +25,7 @@ public/
   bank-logos/        # 本地银行/平台 SVG logo（source 代码命名，如 hsbc.cn.svg；来源：Wikimedia Commons / GitHub 开源集合 / iconfont.cn 图标库（cid=23316 银行合集，补全无开源源的小众银行）；均保留 SourceIcon 图标兜底机制）。
                      # iconfont 来源的 SVG 统一处理标准：原始 1024×1024 画布 → 用浏览器 canvas 渲染检测非白像素真实边界 → viewBox 裁剪为「图形占 ~93%、居中、四周留 ~7% 内边距」（与 xib/icbc/pab/cmb/boc 等一致，保证 16px 下所有图标视觉大小统一；勿裁剪到 100% 贴满，会显得比其他图标大）。
                      # 横向徽章（HSBC 菱形 2:1 等）是品牌固有形状，裁剪后 contain 显示自然偏矮，属正常，勿强行方形化。
+                     # 特例：cfets/hkma 为 PNG（hkma 取官网 jpg 白底转透明），SourceIcon 的 LOGO_EXT 映射；全部 50 源 icon 与官方牌价链接（tools.ts sourceRatesURL）已齐全。
 ```
 
 ## 关键实现要点
@@ -56,6 +57,33 @@ yarn lint             # next lint（构建时默认跳过）
 ```
 
 环境变量：`FXRATE_API` 覆盖后端 JSON-RPC 地址（默认 `https://fxrate.sunoaki.net/v1/jsonrpc`，见 `tools.ts`）。
+
+### 开发用本地后端（端口 8081）
+
+本地开发后端用 `PORT=8081` 启动（**代码默认端口是 8080**，不设 PORT 会与 `yarn full-dev` 的 tsx 实例冲突）：
+
+```bash
+cd lib/fxrate && PORT=8081 nohup node --unhandled-rejections=warn dist/index.cjs > /tmp/fxrate-backend-8081.log 2>&1 &
+```
+
+- dist 需保持最新：`lib/fxrate` 内 `yarn build`（esbuild 重建 `dist/index.cjs`，BUILDTIME/GITBUILD 注入版本号），改源码后记得重建再重启。
+- 版本检查：`curl http://127.0.0.1:8081/info`（REST）或 JSON-RPC `instanceInfo`；footer 的「后端 fxrate@短hash」来自后者。
+- 重启旧进程：SIGTERM 一次可能不生效（进程进入 SNsl 睡眠态），需 `kill` 后确认端口释放，必要时 SIGKILL。
+- 换端口后若页面 footer 版本号没变，先确认前端代理指向（见下）。
+
+### 前端连本地后端必须同时设 FXRATE_API 与 FXRATE_PROXY
+
+**坑**：`process.env.FXRATE_API` 只在服务端（SSR）注入——浏览器端 JS 看不到它，客户端会 fallback 到同源代理 `/api/fxrate`，而该代理目标由 `FXRATE_PROXY` 决定（`next.config.mjs` rewrites，默认线上 `https://fxrate.sunoaki.net/v1/jsonrpc`）。
+
+只设 `FXRATE_API` 的结果：SSR 首屏连本地 8081，但**客户端所有数据请求走线上后端**——footer 版本号暴露真相（显示线上旧 commit 而非本地）。
+
+正确启动方式：
+
+```bash
+FXRATE_API=http://localhost:8081/v1/jsonrpc FXRATE_PROXY=http://localhost:8081/v1/jsonrpc yarn dev
+```
+
+判断当前连的是哪个后端：看 footer「后端 fxrate@短hash」——本地 8081 应为 `lib/fxrate` 当前 HEAD 的 hash。
 
 ## 约定与注意事项
 

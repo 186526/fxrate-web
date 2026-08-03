@@ -173,6 +173,14 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 							body: {
 								transition: "background-color 0.2s ease",
 							},
+							"@media (prefers-reduced-motion: reduce)": {
+								"*": {
+									animationDuration: "0.01ms !important",
+									animationIterationCount: "1 !important",
+									transitionDuration: "0.01ms !important",
+									scrollBehavior: "auto !important",
+								},
+							},
 						},
 					},
 					MuiPaper: {

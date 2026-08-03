@@ -62,6 +62,34 @@ export const sourceRatesURL: Record<string, string> = {
 	"dbs.cn": "https://www.dbs.com.cn/personal/rates-online/foreign-currency-foreign-exchange.page",
 	"dbs.hk": "https://www.dbs.com.hk/personal/rates-online/foreign-currency-foreign-exchange.page",
 	"alipay": "https://render.alipay.com/p/s/currency-converter-sem/",
+	"cmbc": "https://www.cmbc.com.cn/sy/xqsj/wh/dgjsh/",
+	"cgb": "https://www.cgbchina.com.cn/Info/12154717",
+	"hxb": "https://sbank.hxb.com.cn/gateway/forexquote.jsp",
+	"cbhb": "https://www.cbhb.com.cn/cbhbank/jrgj/whpj/index.shtml",
+	"bob": "https://www.bankofbeijing.com.cn/personal/personalExchangeRate",
+	"bosc": "https://www.bosc.cn/zh/dtjr/whpj/",
+	"njcb": "https://ebank.njcb.com.cn/perbank/PB00000016exchangeRateQry.do",
+	"hzbank": "http://www.hzbank.com.cn/hzyh/gjyw/bjfw24/whpj/index.html",
+	"gzcb": "http://www.gzcb.com.cn/sy/ywbl/flbz/whhlb/",
+	"hsbank": "https://www.hsbank.com.cn/Channel/23998",
+	"bcq": "https://www.cqcbank.com/cn/home/kjrk/sykj/341.html",
+	"bcs": "https://www.bankofchangsha.com/site/col138/index.html",
+	"cqtg": "https://www.ccqtgb.com/col118/list.html",
+	"ghb": "https://www.ghbank.com.cn/khfw/wh/whpj/",
+	"hfbank": "https://www.hfbank.com.cn/bjfw/hqzx/whpj/index.shtml",
+	"zybank": "https://pibs.zyebank.com/pweb/HistoryRateQryPre.do",
+	"bojs": "https://www.jsbchina.cn/CNNEW/kjfsnew/jrxinxinew/whpjnew/index.html?flag=2",
+	"ecb": "https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html",
+	"hkma": "https://www.hkma.gov.hk/eng/data-publications-and-research/data-and-statistics/monthly-statistical-bulletin/",
+	"hkab": "https://www.hkab.org.hk/sc/rates/exchange-rates",
+	"hsb": "https://www.hangseng.com/zh-hk/personal/banking/rates/foreign-exchange-rates/",
+	"bea": "https://www.hkbea.com/cgi-bin/rate_ttfx.jsp?language=sc",
+	"ocbc": "https://www.ocbc.com/rates/daily_price_fx.html",
+	"ocbchk": "https://www.ocbc.com.hk/personal-banking/sc/ocbc-bank-foreign-exchange-rates-for-personal-banking",
+	"icbca": "https://www.icbcasia.com/hk/sc/personal/banking/rate/foreign-exchange-rate/default.html",
+	"cncbi": "https://www.cncbinternational.com/rate-table/exchange_rate_en.html",
+	"ccba": "https://www.asia.ccb.com/hongkong_sc/personal/accounts/exchange_rate_enquiry.html",
+	"cmbwl": "https://www.cmbwinglungbank.com/wlb_corporate/cn/personal/investments/financial-information/exchange-rates/index.html",
 }
 
 // 来源是否有官方牌价页链接（无映射的来源返回空）
@@ -148,9 +176,11 @@ export interface FXDetailsOptions {
 	bfs?: boolean
 }
 
-// 交叉汇率响应在 fxRateResponse 基础上多了 path 字段（client 类型未声明，运行时已透传）
+// 交叉汇率响应在 fxRateResponse 基础上多了 path 字段（client 类型未声明，运行时已透传）；
+// alias 为 CNY/CNH 归一化提示：源只用 CNH 报价时实际使用 CNH 汇率（如 dbs/ocbc）
 interface FXRateWithPath extends fxRateResponse {
 	path?: string[]
+	alias?: string
 }
 
 export async function getCurrenciesDetails(
@@ -271,6 +301,10 @@ export async function getCurrenciesDetails(
 				if (withPath.path && withPath.path.length > 0) {
 					data[x].path = withPath.path
 				}
+
+				if (withPath.alias) {
+					data[x].alias = withPath.alias
+				}
 			},
 			"all",
 			8,
@@ -354,6 +388,10 @@ export interface RatesMatrixCell {
 	remit?: number | string | boolean
 	// 交叉汇率补查时的过桥路径（如 ["CNY","HKD","CNH"]）
 	path?: string[]
+	// CNY/CNH 归一化：源只用 CNH 报价时实际使用 CNH 汇率
+	alias?: string
+	// 该汇率更新时间（用于 stale 判断）
+	updated?: Date
 }
 
 export interface RatesMatrix {
@@ -412,6 +450,7 @@ export async function getRatesMatrix(
 							middle: item.middle,
 							cash: item.cash,
 							remit: item.remit,
+							updated: safeUpdated(item.updated),
 						}
 					}
 					data[x] = row
@@ -483,6 +522,7 @@ export async function getSourceMatrixRow(
 							withPath.path && withPath.path.length > 0
 								? withPath.path
 								: undefined,
+						alias: withPath.alias,
 					}
 				},
 				"all",

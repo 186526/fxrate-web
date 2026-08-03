@@ -167,9 +167,11 @@ export default function CurrencyChooser({
 				},
 				alignItems: "center",
 				flexWrap: "wrap",
-				gap: 1,
-				p: { xs: 1, sm: 1.5 },
+				gap: { xs: 1.25, sm: 1.5 },
+				p: { xs: 1.25, sm: 1.5 },
 				borderRadius: 1,
+				border: "1px solid",
+				borderColor: "divider",
 			}}
 		>
 			<Autocomplete
@@ -197,15 +199,19 @@ export default function CurrencyChooser({
 						onClick={onSwap}
 						sx={{
 							flexShrink: 0,
-							// 触控目标 ≥40px，移动端更易点按
 							width: { xs: 40, sm: 36 },
 							height: { xs: 40, sm: 36 },
-							border: 1,
+							borderRadius: "50%",
+							bgcolor: "brandSoft",
+							color: "primary.main",
+							border: "1px solid",
 							borderColor: "divider",
-							"&:hover": {
+							transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+							"&:hover, &:active": {
 								bgcolor: "primary.main",
 								color: "primary.contrastText",
 								borderColor: "primary.main",
+								transform: "rotate(180deg)",
 							},
 						}}
 					>

@@ -10,6 +10,7 @@ export const NON_BANK_SOURCES = [
 	"jcb",
 	"ecb",
 	"cfets",
+	"hkma",
 	"alipay",
 ]
 

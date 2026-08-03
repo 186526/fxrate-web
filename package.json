@@ -14,6 +14,7 @@
     "@emotion/styled": "^11.14.0",
     "@mui/icons-material": "^6.5.0",
     "@mui/material": "^6.5.0",
+    "@mui/material-nextjs": "^9.1.1",
     "country-locale-map": "^1.9.4",
     "currency-codes-ts": "^3.0.0",
     "lru-cache": "^11.0.1",

@@ -2,8 +2,10 @@
 import * as React from "react"
 
 import Box from "@mui/material/Box"
+import Popover from "@mui/material/Popover"
 import Typography from "@mui/material/Typography"
 import Tooltip from "@mui/material/Tooltip"
+import { useMediaQuery } from "@mui/material"
 import ScheduleIcon from "@mui/icons-material/Schedule"
 import { useTheme } from "@mui/material/styles"
 
@@ -41,8 +43,8 @@ export function computeStats(
 	}
 }
 
-// 超过 24 小时未更新的数据视为可能不准确
-export const STALE_MS = 24 * 60 * 60 * 1000
+// 超过 36 小时未更新的数据视为可能不准确
+export const STALE_MS = 36 * 60 * 60 * 1000
 
 export const isStale = (updated: Date) =>
 	Date.now() - updated.getTime() > STALE_MS
@@ -77,6 +79,18 @@ export function StatsTooltip({
 				sx={{ display: "block", fontWeight: 700, mb: 0.5 }}
 			>
 				{title}
+			</Typography>
+			<Typography
+				variant="caption"
+				sx={{
+					display: "flex",
+					justifyContent: "space-between",
+					mb: 0.5,
+					fontWeight: 600,
+				}}
+			>
+				<span>当前</span>
+				<span>{fmt2(current)}</span>
 			</Typography>
 			{[
 				{ label: "平均", value: stats.mean },
@@ -119,6 +133,88 @@ export function StatsTooltip({
 				)
 			})}
 		</Box>
+	)
+}
+
+// 移动端判定 context：表格顶层算一次，避免每个单元格 StatsTip 各建 matchMedia 监听（348+ 实例卡顿源）
+const MobileContext = React.createContext<boolean | null>(null)
+
+// 表格容器用它包裹一次：把 isMobile 传给所有 StatsTip
+export function StatsTipProvider({ children }: { children: React.ReactNode }) {
+	const theme = useTheme()
+	const isMobile = useMediaQuery(theme.breakpoints.down("sm"))
+	return <MobileContext.Provider value={isMobile}>{children}</MobileContext.Provider>
+}
+
+// 统计信息容器：桌面端 hover Tooltip，移动端（触摸无 hover）点击 Popover 弹窗
+// children 为触发元素（数字单元格）；content 为统计内容
+export function StatsTip({
+	content,
+	children,
+}: {
+	content: React.ReactNode
+	children: React.ReactElement<{ onClick?: (e: React.MouseEvent<HTMLElement>) => void }>
+}) {
+	const theme = useTheme()
+	const ctxMobile = React.useContext(MobileContext)
+	const isMobile =
+		ctxMobile ?? useMediaQuery(theme.breakpoints.down("sm"))
+	const [anchor, setAnchor] = React.useState<HTMLElement | null>(null)
+
+	// 移动端：点击弹窗
+	if (isMobile) {
+		const child = React.cloneElement(children, {
+			onClick: (e: React.MouseEvent<HTMLElement>) => {
+				setAnchor(e.currentTarget)
+				children.props.onClick?.(e)
+			},
+		})
+		return (
+			<>
+				{child}
+				<Popover
+					open={Boolean(anchor)}
+					anchorEl={anchor}
+					onClose={() => setAnchor(null)}
+					anchorOrigin={{ vertical: "center", horizontal: "center" }}
+					transformOrigin={{ vertical: "center", horizontal: "center" }}
+					slotProps={{
+						paper: {
+							sx: {
+								p: 1.5,
+								maxWidth: 280,
+								borderRadius: "14px",
+								boxShadow: 6,
+							},
+						},
+					}}
+				>
+					{content}
+				</Popover>
+			</>
+		)
+	}
+	// 桌面端：hover Tooltip（与移动端弹窗同色彩方案：主题 surface + 边框，避免 inverse 白底刺眼）
+	return (
+		<Tooltip
+			title={content}
+			slotProps={{
+				tooltip: {
+					sx: {
+						fontSize: 12,
+						backgroundColor: "background.paper",
+						color: "text.primary",
+						border: 1,
+						borderColor: "divider",
+						borderRadius: "14px",
+						p: 1,
+						boxShadow: 6,
+					},
+				},
+			}}
+		>
+			{children}
+		</Tooltip>
 	)
 }
 

@@ -45,6 +45,10 @@ const FX_SOURCES = new Set(["wise"])
 // 本地 logo 文件扩展名（默认 svg；PNG 版用于源文件本身是 PNG 的情况）
 const LOGO_EXT: Record<string, string> = {
 	cfets: "png",
+	hkma: "png",
+	hkab: "png",
+	ocbc: "png",
+	ocbchk: "png",
 }
 
 export function SourceIcon({

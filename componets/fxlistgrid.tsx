@@ -34,7 +34,8 @@ import {
 	ColumnStats,
 	computeStats,
 	isStale,
-	StatsTooltip,
+	StatsTip,
+	StatsTipProvider,
 	StaleIcon,
 	useMounted,
 } from "@/componets/rateStats"
@@ -50,6 +51,8 @@ export interface FXListProps {
 	id?: number
 	// 交叉汇率时后端回传的实际兑换路径（如 ["CNH","HKD","JPY"]）
 	path?: string[]
+	// CNY/CNH 归一化：源只用 CNH 报价时实际使用 CNH 汇率（后端 alias 字段）
+	alias?: string
 }
 
 const nameMapping: { [x: string]: string } = sourceNamesInZH
@@ -122,6 +125,7 @@ interface Row {
 	sellRemit?: number | string | boolean
 	middle?: number | string | boolean
 	path?: string[]
+	alias?: string
 }
 
 const numCmp = (a: number | undefined, b: number | undefined): number => {
@@ -178,6 +182,7 @@ function FXListGrid({
 					sellRemit: k.type.sell?.remit,
 					middle: k.type.middle,
 					path: k.path,
+					alias: k.alias,
 				})),
 		[props, mounted]
 	)
@@ -287,7 +292,8 @@ function FXListGrid({
 	)
 
 	return (
-		<Box>
+		<StatsTipProvider>
+			<Box>
 			<Box
 				sx={{
 					display: "flex",
@@ -446,6 +452,9 @@ function FXListGrid({
 											col.key == "name"
 												? "background.paper"
 												: "inherit",
+										borderRight:
+											col.key == "name" ? "1px solid" : "none",
+										borderColor: "divider",
 										py: { xs: 0.75, sm: 1 },
 										px: { xs: 1, sm: 1.5 },
 										// 移动端表头字号略小，适配窄屏
@@ -503,18 +512,30 @@ function FXListGrid({
 										left: 0,
 										zIndex: 1,
 										bgcolor: "background.paper",
+										borderRight: "1px solid",
+										borderColor: "divider",
 										whiteSpace: "nowrap",
 										py: { xs: 0.75, sm: 1 },
 										px: { xs: 0.75, sm: 1.5 },
 									}}
 								>
+								<Box
+									sx={{
+										display: "flex",
+										alignItems: "center",
+										gap: { xs: 0.25, sm: 0.75 },
+										// 移动端限制最大宽度，避免撑爆 sticky 列
+										maxWidth: { xs: 150, sm: "none" },
+									}}
+								>
+									{/* 银行图标、名称及链接/过期标志（单行，名称截断保证行高一致） */}
 									<Box
 										sx={{
 											display: "flex",
 											alignItems: "center",
-											gap: 0.75,
-											// 移动端银行名截断，避免撑爆 sticky 列
-											maxWidth: { xs: 150, sm: "none" },
+											gap: 0.5,
+											minWidth: 0,
+											flex: 1,
 										}}
 									>
 										<SourceIcon source={row.source} />
@@ -523,64 +544,46 @@ function FXListGrid({
 												overflow: "hidden",
 												textOverflow: "ellipsis",
 												whiteSpace: "nowrap",
+												minWidth: 0,
+												flex: { xs: 1, sm: "initial" },
 											}}
 										>
 											{row.name}
 										</Box>
-											{ratesPageURL(row.source) && (
-												<Tooltip title="查看官方外汇牌价页">
-													<Link
-														href={ratesPageURL(row.source)!}
-														target="_blank"
-														rel="noopener noreferrer"
-														aria-label={`${row.name} 官方外汇牌价`}
-														onClick={(e) => e.stopPropagation()}
-														sx={{
-															display: "inline-flex",
-															alignItems: "center",
-															justifyContent: "center",
-															verticalAlign: "middle",
-															lineHeight: 0,
-															color: "text.secondary",
-															opacity: 0.75,
-															"&:hover": {
-																opacity: 1,
-																color: "primary.main",
-															},
-														}}
-													>
-														<OpenInNewIcon sx={{ fontSize: 12 }} />
-													</Link>
-												</Tooltip>
-											)}
-											{row.path && row.path.length > 1 && (
-												<Tooltip
-													title={`交叉汇率路径：${row.path.join(" → ")}`}
-													slotProps={{
-														tooltip: { sx: { fontSize: 12 } },
+										{ratesPageURL(row.source) && (
+											<Tooltip title="查看官方外汇牌价页">
+												<Link
+													href={ratesPageURL(row.source)!}
+													target="_blank"
+													rel="noopener noreferrer"
+													aria-label={`${row.name} 官方外汇牌价`}
+													onClick={(e) => e.stopPropagation()}
+													sx={{
+														display: "inline-flex",
+														alignItems: "center",
+														justifyContent: "center",
+														verticalAlign: "middle",
+														lineHeight: 0,
+														color: "text.secondary",
+														opacity: 0.75,
+														flexShrink: 0,
+														"&:hover": {
+															opacity: 1,
+															color: "primary.main",
+														},
 													}}
 												>
-													<Typography
-														component="span"
-														variant="caption"
-														sx={{
-															color: "primary.main",
-															whiteSpace: "nowrap",
-															cursor: "help",
-															borderBottom: "1px dashed",
-															borderColor: "primary.main",
-														}}
-													>
-														经 {row.path.slice(1, -1).join("/")} 折算
-													</Typography>
-												</Tooltip>
-											)}
-											{row.stale && (
-												<StaleIcon
-													title={`该来源 ${relativeTime(row.updated)} 未更新，数据可能不准确`}
-												/>
-											)}
-										</Box>
+													<OpenInNewIcon sx={{ fontSize: 12 }} />
+												</Link>
+											</Tooltip>
+										)}
+										{row.stale && (
+											<StaleIcon
+												title={`该来源 ${relativeTime(row.updated)} 未更新，数据可能不准确`}
+											/>
+										)}
+									</Box>
+								</Box>
 									</TableCell>
 								{cells.map((c) => {
 									const highlight = isBest(c.v, c.target)
@@ -618,8 +621,8 @@ function FXListGrid({
 											}}
 										>
 											{n != undefined && stat ? (
-												<Tooltip
-													title={
+												<StatsTip
+													content={
 														<Box sx={{ py: 0.5 }}>
 															<Typography
 																variant="caption"
@@ -629,7 +632,19 @@ function FXListGrid({
 																	mb: 0.5,
 																}}
 															>
-																{label}统计
+																{from} → {to} · {label}
+															</Typography>
+															<Typography
+																variant="caption"
+																sx={{
+																	display: "flex",
+																	justifyContent: "space-between",
+																	mb: 0.5,
+																	fontWeight: 600,
+																}}
+															>
+																<span>当前</span>
+																<span>{formatValue(c.v)}</span>
 															</Typography>
 															{[
 																{
@@ -705,37 +720,74 @@ function FXListGrid({
 																	</Typography>
 																)
 															})}
+															{(row.path && row.path.length > 1) || row.alias ? (
+																<>
+																	{row.path && row.path.length > 1 && (
+																		<Typography
+																			variant="caption"
+																			sx={{
+																				display: "block",
+																				mt: 0.5,
+																				color: "primary.main",
+																				fontWeight: 700,
+																			}}
+																		>
+																			过桥：{" "}
+																			{row.path.join(" → ")}
+																		</Typography>
+																	)}
+																	{row.alias && (
+																		<Typography
+																			variant="caption"
+																			sx={{
+																				display: "block",
+																				mt: 0.5,
+																				color: "primary.main",
+																			}}
+																		>
+																			实际按{" "}
+																			{row.alias}{" "}
+																			计（CNY/CNH 归一化）
+																		</Typography>
+																	)}
+																</>
+															) : null}
 														</Box>
 													}
-													slotProps={{
-														tooltip: {
-															sx: { fontSize: 12 },
-														},
-													}}
 												>
 													<span
 														style={{
 															cursor: "help",
+															...(row.path &&
+															row.path.length > 1
+																? {
+																		textDecoration:
+																			"underline dotted",
+																		textDecorationColor:
+																			"inherit",
+																  }
+																: {}),
 														}}
 													>
 														{formatValue(c.v)}
 													</span>
-												</Tooltip>
+												</StatsTip>
 											) : (
 												formatValue(c.v)
 											)}
 										</TableCell>
 									)
 								})}
-									<TableCell align="right">
-										<Tooltip
-											title={row.updated.toLocaleString("zh-CN")}
-											slotProps={{
-												tooltip: { sx: { fontSize: 13 } },
-											}}
+									<TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
+										<StatsTip
+											content={
+												<Typography variant="caption">
+													{row.updated.toLocaleString("zh-CN")}
+												</Typography>
+											}
 										>
 											<span><RelativeTime date={row.updated} /></span>
-										</Tooltip>
+										</StatsTip>
 									</TableCell>
 								</TableRow>
 							)
@@ -744,5 +796,6 @@ function FXListGrid({
 				</Table>
 			</TableContainer>
 		</Box>
+		</StatsTipProvider>
 	)
 }

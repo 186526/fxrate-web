@@ -28,7 +28,7 @@ import { sourceNamesInZH } from "@/lib/fxrate/src/constant"
 import { RatesMatrix, RatesMatrixCell, getSourceMatrixRow, ratesPageURL } from "@/componets/tools"
 import { useBestPriceSources } from "@/componets/bestPriceSources"
 import { SourceIcon, currencyEmoji } from "@/componets/sourceIcon"
-import { computeStats, StatsTooltip } from "@/componets/rateStats"
+import { computeStats, StatsTip, StatsTipProvider, StatsTooltip, isStale, StaleIcon, useMounted } from "@/componets/rateStats"
 
 const nameMapping: { [x: string]: string } = sourceNamesInZH
 
@@ -117,6 +117,8 @@ function FXMatrixGrid({
 	)
 	const [bestSourceAnchor, setBestSourceAnchor] =
 		React.useState<HTMLElement | null>(null)
+	// hydration 安全：挂载前 stale 视为 false（isStale 依赖 Date.now()）
+	const mounted = useMounted()
 	const {
 		excluded,
 		toggle: toggleExcluded,
@@ -414,7 +416,8 @@ function FXMatrixGrid({
 	}
 
 	return (
-		<Box>
+		<StatsTipProvider>
+			<Box>
 			<Box
 				sx={{
 					display: "flex",
@@ -478,6 +481,30 @@ function FXMatrixGrid({
 						value={priceType}
 						onChange={(_, v: PriceType | null) => {
 							if (v) setPriceType(v)
+						}}
+						sx={{
+							width: { xs: "100%", sm: "auto" },
+							borderRadius: 9999,
+							p: 0.5,
+							bgcolor: "action.hover",
+							border: "1px solid",
+							borderColor: "divider",
+							"& .MuiToggleButtonGroup-grouped": {
+								border: 0,
+								borderRadius: 9999,
+								flex: { xs: 1, sm: "initial" },
+								px: { xs: 1.5, sm: 2 },
+								py: 0.5,
+								fontSize: { xs: 12, sm: 13 },
+								fontWeight: 500,
+								color: "text.secondary",
+								"&.Mui-selected": {
+									bgcolor: "brandSoft",
+									color: "primary.dark",
+									fontWeight: 700,
+									boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
+								},
+							},
 						}}
 					>
 						<ToggleButton value="middle">中间价</ToggleButton>
@@ -638,6 +665,8 @@ function FXMatrixGrid({
 									position: "sticky",
 									left: 0,
 									bgcolor: "background.paper",
+									borderRight: "1px solid",
+									borderColor: "divider",
 									zIndex: 2,
 									py: { xs: 0.75, sm: 1 },
 									px: { xs: 0.75, sm: 1.5 },
@@ -680,7 +709,17 @@ function FXMatrixGrid({
 						</TableRow>
 					</TableHead>
 					<TableBody>
-						{visibleSources.map((s) => (
+						{visibleSources.map((s) => {
+							// 该源各货币最新更新时间：任一 cell 超过 STALE_MS 视为整行可能不准确
+							const rowUpdated = Object.values(mergedData[s] ?? {}).reduce<Date | null>(
+								(acc, cell) => {
+									if (!cell?.updated) return acc
+									return !acc || cell.updated.getTime() > acc.getTime() ? cell.updated : acc
+								},
+								null
+							)
+							const rowStale = mounted && !!rowUpdated && isStale(rowUpdated)
+							return (
 							<TableRow key={s} hover>
 								<TableCell
 									component="th"
@@ -689,6 +728,8 @@ function FXMatrixGrid({
 										position: "sticky",
 										left: 0,
 										bgcolor: "background.paper",
+										borderRight: "1px solid",
+										borderColor: "divider",
 										zIndex: 1,
 										whiteSpace: "nowrap",
 										py: { xs: 0.75, sm: 1 },
@@ -701,12 +742,16 @@ function FXMatrixGrid({
 											alignItems: "center",
 											gap: 0.75,
 											// 移动端银行名截断，避免撑爆 sticky 列
-											maxWidth: { xs: 130, sm: "none" },
+											maxWidth: { xs: 140, sm: "none" },
 										}}
 									>
-										<SourceIcon source={s} />
+										<Box sx={{ display: "inline-flex", flexShrink: 0 }}>
+											<SourceIcon source={s} />
+										</Box>
 										<Box
 											sx={{
+												flex: 1,
+												minWidth: 0,
 												overflow: "hidden",
 												textOverflow: "ellipsis",
 												whiteSpace: "nowrap",
@@ -730,6 +775,7 @@ function FXMatrixGrid({
 														lineHeight: 0,
 														color: "text.secondary",
 														opacity: 0.75,
+														flexShrink: 0,
 														"&:hover": {
 															opacity: 1,
 															color: "primary.main",
@@ -740,22 +786,29 @@ function FXMatrixGrid({
 												</Link>
 											</Tooltip>
 										)}
+										{rowStale && (
+											<StaleIcon
+												title={`该来源 ${rowUpdated!.toLocaleString("zh-CN")} 未更新，数据可能不准确`}
+											/>
+										)}
 									</Box>
 								</TableCell>
 								{currencies.map((c) => {
 									const v = cellOf(mergedData[s][c], priceType)
 									const n = toNumber(v)
 									const highlight =
-										n != undefined && n == best[c]
+										!rowStale && n != undefined && n == best[c]
 									return (
 										<TableCell
 											key={c}
 											align="right"
 											sx={{
 												fontWeight: highlight ? 700 : "inherit",
-												color: highlight
-													? "primary.main"
-													: "inherit",
+												color: rowStale
+													? "text.disabled"
+													: highlight
+														? "primary.main"
+														: "inherit",
 												backgroundColor: highlight
 													? "brandSoft"
 													: "inherit",
@@ -765,18 +818,34 @@ function FXMatrixGrid({
 											}}
 										>
 											{n != undefined && colStats[c] ? (
-												<Tooltip
-													title={
+												<StatsTip
+													content={
 														<>
+															{mergedData[s][c]?.updated && (
+																<Typography
+																	variant="caption"
+																	color="text.secondary"
+																	sx={{
+																		display: "block",
+																		mb: 0.5,
+																	}}
+																>
+																	更新于{" "}
+																	{mergedData[s][c]!
+																		.updated!.toLocaleString(
+																			"zh-CN"
+																		)}
+																</Typography>
+															)}
 															<StatsTooltip
 																title={`${currencyEmoji(c) ?? ""} ${c}`}
 																current={n}
 																stats={colStats[c]!}
 																betterLower={false}
 															/>
-															{mergedData[s][c]?.path &&
-																mergedData[s][c]!.path!.length >
-																	1 && (
+														{mergedData[s][c]?.path &&
+															mergedData[s][c]!.path!.length >
+																1 && (
 																	<Typography
 																		variant="caption"
 																		sx={{
@@ -794,13 +863,23 @@ function FXMatrixGrid({
 																		)}
 																	</Typography>
 																)}
+															{mergedData[s][c]?.alias && (
+																<Typography
+																	variant="caption"
+																	sx={{
+																		display: "block",
+																		mt: 0.5,
+																		color: "primary.main",
+																	}}
+																>
+																	实际按{" "}
+																	{mergedData[s][c]!
+																		.alias}{" "}
+																	计（CNY/CNH 归一化）
+																</Typography>
+															)}
 														</>
 													}
-													slotProps={{
-														tooltip: {
-															sx: { fontSize: 12 },
-														},
-													}}
 												>
 													<span
 														style={{
@@ -819,7 +898,7 @@ function FXMatrixGrid({
 													>
 														{formatValue(v)}
 													</span>
-												</Tooltip>
+												</StatsTip>
 											) : (
 												formatValue(v)
 											)}
@@ -827,7 +906,8 @@ function FXMatrixGrid({
 									)
 								})}
 							</TableRow>
-						))}
+							)
+						})}
 						{slowSources
 							.filter((s) => !(s in extraRows))
 							.map((s) => (
@@ -871,5 +951,6 @@ function FXMatrixGrid({
 				</Table>
 			</TableContainer>
 		</Box>
+		</StatsTipProvider>
 	)
 }

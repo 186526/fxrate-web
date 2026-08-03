@@ -14,6 +14,14 @@
 
 # next.js
 /out/
+/.next/
+
+# tool artifacts
+.playwright-mcp/
+.sisyphus/
+
+# submodule deps（父仓库 COPY . . 时会带入 lib/fxrate/node_modules，426 个包）
+lib/fxrate/node_modules
 
 # production
 /build

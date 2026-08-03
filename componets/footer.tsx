@@ -60,7 +60,11 @@ export default function Footer({
 					gap: 0.5,
 				}}
 			>
-				<Typography variant="caption" color="text.secondary">
+				<Typography
+					variant="caption"
+					color="text.secondary"
+					sx={{ textAlign: { xs: "center", sm: "left" } }}
+				>
 					外汇牌价查询 · 数据来自各银行/平台公开牌价，仅供参考 | by{" "}
 					<Link
 						href="https://186526.xyz"

@@ -18,6 +18,7 @@ import SwapHorizIcon from "@mui/icons-material/SwapHoriz"
 import TuneIcon from "@mui/icons-material/Tune"
 import DarkModeIcon from "@mui/icons-material/DarkMode"
 import LightModeIcon from "@mui/icons-material/LightMode"
+import MenuBookIcon from "@mui/icons-material/MenuBook"
 import MenuItem from "@mui/material/MenuItem"
 import Menu from "@mui/material/Menu"
 import TextField from "@mui/material/TextField"
@@ -394,6 +395,10 @@ export default function Index({
 	}
 
 	const theme = useTheme()
+	// iOS Safari：backdrop-filter 合成层 bug 会吞掉页面触摸事件（点不动），降级为纯色背景
+	const isIOS =
+		typeof navigator != "undefined" &&
+		/iPad|iPhone|iPod/.test(navigator.userAgent)
 
 	return (
 		<>
@@ -403,8 +408,13 @@ export default function Index({
 					position: "sticky",
 					top: 0,
 					zIndex: 1100,
-					bgcolor: alpha(theme.palette.background.paper, 0.85),
-					backdropFilter: "blur(8px)",
+					...(isIOS
+						? { bgcolor: theme.palette.background.paper }
+						: {
+								bgcolor: alpha(theme.palette.background.paper, 0.85),
+								backdropFilter: "blur(8px)",
+								WebkitBackdropFilter: "blur(8px)",
+						  }),
 					// Sunoaki 导航惯例：底部一条暖沙分隔线，不加重阴影
 					borderBottom: 1,
 					borderColor: "divider",
@@ -415,14 +425,14 @@ export default function Index({
 						maxWidth: 1080,
 						mx: "auto",
 						px: { xs: 1, sm: 2 },
-						py: { xs: 0.5, sm: 1 },
+						py: { xs: 0.375, sm: 1 },
 						display: "flex",
 						alignItems: "center",
-						gap: { xs: 0.5, sm: 2 },
+						gap: { xs: 0.25, sm: 2 },
 						flexWrap: "wrap",
 					}}
 				>
-					<Box sx={{ display: "flex", alignItems: "center", mr: { xs: 0.5, sm: 0 } }}>
+					<Box sx={{ display: "flex", alignItems: "center", mr: { xs: 0.25, sm: 0 } }}>
 						<Typography
 							variant="h6"
 							component="h1"
@@ -435,15 +445,32 @@ export default function Index({
 						value={view}
 						onChange={(_, v) => setView(v as View)}
 						sx={{
-							minHeight: { xs: 36, sm: 40 },
+							minHeight: { xs: 32, sm: 40 },
 							order: { xs: 3, sm: 0 },
 							width: { xs: "100%", sm: "auto" },
-							borderTop: { xs: 1, sm: 0 },
-							borderColor: "divider",
+							mt: { xs: 0.25, sm: 0 },
+							p: { xs: "2px", sm: 0 },
+							bgcolor: { xs: "surfaceMuted", sm: "transparent" },
+							borderRadius: { xs: "9999px", sm: 0 },
+							border: { xs: 1, sm: 0 },
+							borderColor: { xs: "divider", sm: "transparent" },
+							"& .MuiTabs-indicator": {
+								display: { xs: "none", sm: "block" },
+							},
 							"& .MuiTab-root": {
-								minHeight: { xs: 36, sm: 40 },
-								py: { xs: 0.5, sm: 0 },
+								minHeight: { xs: 32, sm: 40 },
+								py: { xs: 0.25, sm: 0 },
+								px: { xs: 1.5, sm: 2 },
 								flex: { xs: 1, sm: 0 },
+								borderRadius: { xs: "9999px", sm: 0 },
+								fontSize: { xs: "0.8125rem", sm: "0.875rem" },
+								fontWeight: 600,
+								transition: "all 0.2s ease",
+								"&.Mui-selected": {
+									bgcolor: { xs: "brandSoft", sm: "transparent" },
+									color: { xs: "primary.dark", sm: "primary.main" },
+									fontWeight: 700,
+								},
 							},
 						}}
 					>
@@ -621,6 +648,15 @@ export default function Index({
 						<Tooltip title="刷新">
 							<IconButton aria-label="refresh" size="small" onClick={handleRefresh}>
 								<RefreshIcon fontSize="small" />
+							</IconButton>
+						</Tooltip>
+						<Tooltip title="API 文档">
+							<IconButton
+								aria-label="API 文档"
+								size="small"
+								onClick={() => router.push("/api-docs")}
+							>
+								<MenuBookIcon fontSize="small" />
 							</IconButton>
 						</Tooltip>
 						<Tooltip title={mode == "dark" ? "切换浅色模式" : "切换暗色模式"}>
