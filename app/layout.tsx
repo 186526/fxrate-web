@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import { ThemeProvider } from "@/componets/theme";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
 	title: "FXRate-web",
-	description: "Yet another FX Rates helper | by @real186526",
+	description: "外汇牌价查询 · 多家银行/平台汇率对比 | by @real186526",
 };
 
 export default function RootLayout({
@@ -15,7 +16,7 @@ export default function RootLayout({
 	children: React.ReactNode;
 }>) {
 	return (
-		<html lang="en">
+		<html lang="zh-CN">
 			<head>
 				<script
 					async
@@ -24,7 +25,9 @@ export default function RootLayout({
 					data-website-id="ca55ec9e-d5f0-4c73-8abd-f7e2272225ed"
 				></script>
 			</head>
-			<body className={inter.className}>{children}</body>
+			<body className={inter.className}>
+				<ThemeProvider>{children}</ThemeProvider>
+			</body>
 		</html>
 	);
 }
