@@ -170,6 +170,14 @@ function FXListGrid({
 			props
 				.slice()
 				.sort((a, b) => a.name.localeCompare(b.name))
+				// 买卖价都缺失的行整行隐藏（只有中间价/空数据的行对单对视图无意义）
+				.filter(
+					(k) =>
+						Boolean(k.type.buy?.cash) ||
+						Boolean(k.type.buy?.remit) ||
+						Boolean(k.type.sell?.cash) ||
+						Boolean(k.type.sell?.remit)
+				)
 				.map((k, i) => ({
 					id: i + 1,
 					source: k.name,
