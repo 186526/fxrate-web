@@ -59,6 +59,10 @@ type CellValue = number | string | boolean
 
 type PriceType = "middle" | "cash" | "remit"
 
+// 额外行来源的加载状态：自动补查失败（error）可区分、可重试，
+// 不再被一次性 ref 永久去重
+type SourceLoadStatus = "idle" | "loading" | "success" | "error"
+
 const priceTypeLabels: { [k in PriceType]: string } = {
 	middle: "中间价",
 	cash: "现钞",
@@ -87,6 +91,62 @@ const cellOf = (
 	return cell[type]
 }
 
+const orientMatrixRowPaths = (
+	row: RatesMatrix[string],
+	from: string,
+	reverse: boolean
+): RatesMatrix[string] => {
+	if (!reverse) return row
+
+	let changed = false
+	const oriented: RatesMatrix[string] = {}
+	for (const currency in row) {
+		const cell = row[currency]
+		const path = cell.path
+		if (path && path.length > 1 && path[0] == from) {
+			oriented[currency] = { ...cell, path: [...path].reverse() }
+			changed = true
+		} else {
+			oriented[currency] = cell
+		}
+	}
+
+	return changed ? oriented : row
+}
+
+// 单元格合并：b（优先侧）的已定义字段覆盖 a。b 对缺值格会显式写
+// cash/remit/path 为 undefined（getRatesMatrix 行为），直接用 ?? 回落 a
+// 的补查值（false/0/字符串等合法值保留），避免整格浅合并丢字段
+const mergeCell = (
+	a: RatesMatrixCell | undefined,
+	b: RatesMatrixCell | undefined
+): RatesMatrixCell => ({
+	middle: b?.middle ?? a?.middle ?? 0,
+	cash: b?.cash ?? a?.cash,
+	remit: b?.remit ?? a?.remit,
+	path: b?.path ?? a?.path,
+	alias: b?.alias ?? a?.alias,
+	updated: b?.updated ?? a?.updated,
+})
+
+// 单元格字段级合并：同一来源同一货币按字段 merge，b 对重叠字段优先、
+// a 独有字段（path/alias/updated 等）保留。主数据与单独补查行可能对同一
+// 格各持有部分字段（如主数据只有 middle、补查带回 cash/remit/path），
+// 浅合并整格会丢字段，这里逐字段合并
+const mergeCellRows = (
+	a: RatesMatrix[string] | undefined,
+	b: RatesMatrix[string] | undefined
+): RatesMatrix[string] => {
+	if (!a) return b ?? {}
+	if (!b) return a
+	const currencyKeys = new Set([...Object.keys(a), ...Object.keys(b)])
+	const merged: RatesMatrix[string] = {}
+	for (const c of currencyKeys) {
+		merged[c] = mergeCell(a[c], b[c])
+	}
+	return merged
+}
+
 export default React.memo(FXMatrixGrid)
 
 function FXMatrixGrid({
@@ -97,6 +157,8 @@ function FXMatrixGrid({
 	slowSources = [],
 	sourceCurrencies,
 	crossRates = false,
+	reverse = false,
+	refreshGeneration = 0,
 }: {
 	data: RatesMatrix
 	from: string
@@ -109,6 +171,10 @@ function FXMatrixGrid({
 	sourceCurrencies?: { [source: string]: string[] }
 	// 交叉汇率开关：单独加载的源（MasterCard 自动 / Visa 点击）用 bfs 折算
 	crossRates?: boolean
+	// 金额单位反转：后端按反向路径返回每 amount 单位列货币可兑换的基准货币数量
+	reverse?: boolean
+	// 主矩阵手动刷新时递增，使额外行绕过旧代际并重新请求
+	refreshGeneration?: number
 }) {
 	const [priceType, setPriceType] = React.useState<PriceType>("middle")
 	const [enabled, setEnabled] = React.useState<string[] | null>(null)
@@ -130,16 +196,61 @@ function FXMatrixGrid({
 	const [pickerSearch, setPickerSearch] = React.useState("")
 	const [bestSearch, setBestSearch] = React.useState("")
 
-	// 手动加载的慢源行（点击后经 getSourceMatrixRow 单独查询合并）
-	const [extraRows, setExtraRows] = React.useState<RatesMatrix>({})
-	const [loadingSource, setLoadingSource] = React.useState<string | null>(
-		null
+	// 可见货币签名（仅主数据 + 启用集合，不含额外行）：用于构造请求 key。
+	// 额外行新增的货币列不应触发整批额外行重置，故 key 只随主数据/启用集变化
+	const baseCurrencies = React.useMemo(() => {
+		const currencySet = new Set<string>()
+		for (const s in data) {
+			for (const c in data[s]) {
+				if (c == from) continue
+				currencySet.add(c)
+			}
+		}
+		const activeSet = new Set(
+			enabled ?? DEFAULT_COMMON_CURRENCIES.filter((c) =>
+				currencySet.has(c)
+			)
+		)
+		return Array.from(currencySet).filter((c) => activeSet.has(c))
+	}, [data, from, enabled])
+	const visibleCurrenciesKey = React.useMemo(
+		() => [...baseCurrencies].sort().join(","),
+		[baseCurrencies]
 	)
+	const rowParamsKey =
+		`${from}-${amount}-p${precision}-${crossRates ? "bfs" : "direct"}-` +
+		`${reverse ? "reverse" : "forward"}-r${refreshGeneration}-${visibleCurrenciesKey}`
 
-	const mergedData = React.useMemo(
-		() => ({ ...data, ...extraRows }),
-		[data, extraRows]
-	)
+	// 额外行（Visa 手动 / MasterCard 自动 / 交叉补查）keyed 快照：data 只归属
+	// 其 key 对应的参数。参数变化时 render 先按 key 隔离（即使重置 effect 尚未
+	// 运行，新参数也绝不渲染旧行），异步响应写回也要求 key 一致
+	const [extraRows, setExtraRows] = React.useState<{
+		key: string
+		data: RatesMatrix
+	}>({ key: rowParamsKey, data: {} })
+	// 每个额外行来源的加载状态：自动补查失败（error）可区分、可重试
+	const [sourceStatus, setSourceStatus] = React.useState<{
+		[source: string]: SourceLoadStatus
+	}>({})
+	const [sourceError, setSourceError] = React.useState<{
+		[source: string]: string
+	}>({})
+
+	const baseData = React.useMemo(() => {
+		// keyed 快照：extraRows 只在其记录时的参数 key 下参与合并，旧参数数据
+		// 绝不渲染进新参数表格
+		if (extraRows.key != rowParamsKey) return data
+		const merged: RatesMatrix = {}
+		const sourceKeys = new Set([
+			...Object.keys(extraRows.data),
+			...Object.keys(data),
+		])
+		for (const source of sourceKeys) {
+			merged[source] = mergeCellRows(extraRows.data[source], data[source])
+		}
+		return merged
+	}, [data, extraRows, rowParamsKey])
+	const displayData = baseData
 
 	React.useEffect(() => {
 		try {
@@ -169,13 +280,13 @@ function FXMatrixGrid({
 	}, [enabled])
 
 	const { sources, allCurrencies, currencies, best } = React.useMemo(() => {
-		const sourceKeys = Object.keys(mergedData).sort((a, b) =>
+		const sourceKeys = Object.keys(displayData).sort((a, b) =>
 			getName(a).localeCompare(getName(b))
 		)
 
 		const currencySet = new Set<string>()
 		for (const s of sourceKeys) {
-			for (const c in mergedData[s]) {
+			for (const c in displayData[s]) {
 				if (c == from) continue
 				currencySet.add(c)
 			}
@@ -204,7 +315,7 @@ function FXMatrixGrid({
 			let max: number | undefined
 			for (const s of sourceKeys) {
 				if (excluded.has(s)) continue
-				const n = toNumber(cellOf(mergedData[s][c], priceType))
+				const n = toNumber(cellOf(displayData[s][c], priceType))
 				if (n == undefined) continue
 				if (max == undefined || n > max) max = n
 			}
@@ -217,78 +328,139 @@ function FXMatrixGrid({
 			currencies: currencyKeys,
 			best,
 		}
-	}, [mergedData, from, priceType, enabled, excluded])
+	}, [displayData, from, priceType, enabled, excluded])
 
-	// 加载单个源行（MasterCard 自动 / Visa 点击）：只查当前可见的货币列，
-	// 避免触发后端对不支持货币的 chromium 重建导致 30s+ 超时
-	const handleLoadSource = async (source: string) => {
-		if (loadingSource) return
-		setLoadingSource(source)
-		try {
-			const supported = sourceCurrencies?.[source] ?? []
-			const row = await getSourceMatrixRow(
-				source,
-				supported,
-				currencies,
-				from,
-				{ amount, precision, bfs: crossRates }
-			)
-			if (Object.keys(row).length > 0) {
-				setExtraRows((prev) => ({ ...prev, [source]: row }))
+	// 最近一次 commit 的请求 key：异步响应经 requestKey 对比判断是否过期。
+	// 用 useLayoutEffect（commit 后、绘制前）同步，保证同一渲染周期内异步
+	// 响应读到的都是已提交的 key，陈旧响应不能写入当前参数
+	const rowParamsRef = React.useRef(rowParamsKey)
+	React.useLayoutEffect(() => {
+		rowParamsRef.current = rowParamsKey
+	}, [rowParamsKey])
+	const handleLoadSource = React.useCallback(
+		async (source: string) => {
+			const requestKey = rowParamsKey
+			setSourceStatus((prev) => ({ ...prev, [source]: "loading" }))
+			try {
+				const supported = sourceCurrencies?.[source] ?? []
+				const row = await getSourceMatrixRow(
+					source,
+					supported,
+					currencies,
+					from,
+					{ amount, precision, reverse, bfs: crossRates }
+				)
+				// 过期响应（参数已变）直接丢弃，不写状态
+				if (rowParamsRef.current != requestKey) return
+				setSourceStatus((prev) => ({ ...prev, [source]: "success" }))
+				if (Object.keys(row).length > 0) {
+					const displayRow = orientMatrixRowPaths(row, from, reverse)
+					setExtraRows((prev) =>
+						prev.key == requestKey
+							? {
+								key: prev.key,
+								data: {
+									...prev.data,
+									[source]: mergeCellRows(
+										prev.data[source],
+										displayRow
+									),
+								},
+							}
+							: prev
+					)
+				}
+			} catch (e) {
+				// 失败可区分：error 状态渲染"加载失败，重试"行，可手动重试
+				if (rowParamsRef.current != requestKey) return
+				setSourceStatus((prev) => ({ ...prev, [source]: "error" }))
+				setSourceError((prev) => ({
+					...prev,
+					[source]: e instanceof Error ? e.message : String(e),
+				}))
 			}
-		} finally {
-			setLoadingSource(null)
-		}
-	}
+		},
+		[
+			rowParamsKey,
+			sourceCurrencies,
+			currencies,
+			from,
+			amount,
+			precision,
+			reverse,
+			crossRates,
+		]
+	)
 
 	// MasterCard 实测毫秒级返回：矩阵数据就绪后自动加载（不经"点击加载"）。
-	// 参数（from/amount/crossRates）变化时重置已加载记录，用新参数重新加载
-	const autoLoadedRef = React.useRef<string[]>([])
-	const lastParamsRef = React.useRef<string>("")
-	const handleLoadSourceRef = React.useRef(handleLoadSource)
-	handleLoadSourceRef.current = handleLoadSource
+	// 参数、刷新代际或可见货币变化时重置额外行、状态与请求代际，用新参数重新加载
+	const crossFilledRef = React.useRef<string>("")
+	const crossFillRequestRef = React.useRef(0)
+	// 每参数 key 已尝试自动补查的来源：防重复但不永久去重失败——key 变化时清空
+	const autoAttemptedRef = React.useRef<{ [key: string]: string[] }>({})
+	const lastRowParamsRef = React.useRef(rowParamsKey)
 	React.useEffect(() => {
-		const params = `${from}-${amount}-${crossRates}`
-		if (lastParamsRef.current != params) {
-			lastParamsRef.current = params
-			autoLoadedRef.current = []
-			setExtraRows({})
-		}
+		if (lastRowParamsRef.current == rowParamsKey) return
+		lastRowParamsRef.current = rowParamsKey
+		autoAttemptedRef.current = {}
+		crossFillRequestRef.current += 1
+		crossFilledRef.current = ""
+		setExtraRows({ key: rowParamsKey, data: {} })
+		setSourceStatus({})
+		setSourceError({})
+	}, [rowParamsKey])
+
+	React.useEffect(() => {
 		if (!sourceCurrencies || Object.keys(data).length == 0) return
+		const attempted = autoAttemptedRef.current[rowParamsKey] ?? []
 		for (const s of Object.keys(sourceCurrencies)) {
 			if (slowSources.includes(s)) continue
-			if (s in extraRows) continue
 			// 主数据里该行非空（直连全表返回了数据）则无需自动加载；
 			// 空行（如卡组织全表 403）走 getSourceMatrixRow 单独查询
 			if (s in data && Object.keys(data[s]).length > 0) continue
-			if (autoLoadedRef.current.includes(s)) continue
-			autoLoadedRef.current.push(s)
-			handleLoadSourceRef.current(s)
+			const status = sourceStatus[s]
+			if (
+				attempted.includes(s) ||
+				status == "loading" ||
+				status == "success"
+			) continue
+			attempted.push(s)
+			autoAttemptedRef.current[rowParamsKey] = attempted
+			handleLoadSource(s)
 		}
-		// 主数据/来源列表/参数变化时重新评估（extraRows/autoLoadedRef 用 ref 防重复）
-	}, [data, sourceCurrencies, slowSources, from, crossRates, amount, precision])
+		// 主数据/来源列表/请求 key/状态变化时重新评估（attempted 防重复；
+		// 失败后不自动重试——error 不被 attempted 豁免，但本 effect 只在依赖
+		// 变化时运行，不会造成同一参数下无限重试）
+	}, [data, sourceCurrencies, slowSources, rowParamsKey, handleLoadSource, sourceStatus])
 
 	// 交叉汇率补查：开启时，对可见货币列中"该源支持但直连缺失"的格
 	// 用 getSourceMatrixRow(bfs=true) 补查过桥汇率，合并进 extraRows
-	const crossFilledRef = React.useRef<string>("")
 	React.useEffect(() => {
-		if (!crossRates || !sourceCurrencies || Object.keys(data).length == 0)
+		if (!crossRates) {
+			crossFillRequestRef.current += 1
+			crossFilledRef.current = ""
 			return
+		}
+		if (!sourceCurrencies || Object.keys(data).length == 0) return
 		if (currencies.length == 0) return
-		const params = `${from}-${amount}-${currencies.join(",")}-${Object.keys(
-			data
-		).join(",")}`
+		const requestKey = rowParamsKey
+		const params = `${requestKey}-${priceType}-${Object.keys(data).sort().join(",")}`
 		if (crossFilledRef.current == params) return
 		crossFilledRef.current = params
+		const requestId = ++crossFillRequestRef.current
 		;(async () => {
 			for (const s of sources) {
+				if (
+					rowParamsRef.current != requestKey ||
+					crossFillRequestRef.current != requestId ||
+					crossFilledRef.current != params
+				) return
 				if (slowSources.includes(s)) continue
-				if (s in extraRows) continue
 				const supported = sourceCurrencies[s] ?? []
 				const missing = currencies.filter((c) => {
 					if (!supported.includes(c)) return false
 					if (c == from) return false
-					const cell = data[s]?.[c]
+					const cell = baseData[s]?.[c]
 					return (
 						cell == undefined ||
 						toNumber(cellOf(cell, priceType)) == undefined
@@ -301,13 +473,33 @@ function FXMatrixGrid({
 						supported,
 						missing,
 						from,
-						{ amount, precision, bfs: true }
+						{ amount, precision, reverse, bfs: true }
 					)
-					if (Object.keys(row).length > 0) {
-						setExtraRows((prev) => ({
-							...prev,
-							[s]: { ...(prev[s] ?? {}), ...row },
-						}))
+					if (
+						rowParamsRef.current == requestKey &&
+						crossFillRequestRef.current == requestId &&
+						crossFilledRef.current == params &&
+						Object.keys(row).length > 0
+					) {
+						const displayRow = orientMatrixRowPaths(
+							row,
+							from,
+							reverse
+						)
+						setExtraRows((prev) =>
+							prev.key == requestKey
+								? {
+									key: prev.key,
+									data: {
+										...prev.data,
+										[s]: mergeCellRows(
+											prev.data[s],
+											displayRow
+										),
+									},
+								}
+								: prev
+						)
 					}
 				} catch (e) {
 					console.error(`Error cross-filling ${s}:`, e)
@@ -319,14 +511,17 @@ function FXMatrixGrid({
 		crossRates,
 		sourceCurrencies,
 		data,
+		baseData,
 		currencies,
 		from,
 		amount,
 		precision,
+		reverse,
 		slowSources,
 		sources,
 		extraRows,
 		priceType,
+		rowParamsKey,
 	])
 
 	const pickerFiltered = React.useMemo(
@@ -353,11 +548,11 @@ function FXMatrixGrid({
 			stats[c] = computeStats(
 				sources
 					.filter((s) => !excluded.has(s))
-					.map((s) => toNumber(cellOf(mergedData[s][c], priceType)))
+					.map((s) => toNumber(cellOf(displayData[s][c], priceType)))
 			)
 		}
 		return stats
-	}, [currencies, sources, mergedData, priceType, excluded])
+	}, [currencies, sources, displayData, priceType, excluded])
 
 	const toggleCurrency = (c: string) => {
 		setEnabled((prev) => {
@@ -384,26 +579,26 @@ function FXMatrixGrid({
 	const sortedSources = React.useMemo(() => {
 		if (!sortKey) return sources
 		const sorted = sources.slice().sort((a, b) => {
-			const na = toNumber(cellOf(mergedData[a][sortKey], priceType))
-			const nb = toNumber(cellOf(mergedData[b][sortKey], priceType))
+			const na = toNumber(cellOf(displayData[a][sortKey], priceType))
+			const nb = toNumber(cellOf(displayData[b][sortKey], priceType))
 			if (na == undefined && nb == undefined) return 0
 			if (na == undefined) return 1
 			if (nb == undefined) return -1
 			return sortDir == "asc" ? na - nb : nb - na
 		})
 		return sorted
-	}, [sources, mergedData, sortKey, sortDir, priceType])
+	}, [sources, displayData, sortKey, sortDir, priceType])
 
 	// 所有货币列都无数据的行（如无该行可用报价的来源）隐藏，减少噪音
 	const visibleSources = React.useMemo(
 		() =>
 			sortedSources.filter((s) =>
 				currencies.some((c) => {
-					const n = toNumber(cellOf(mergedData[s][c], priceType))
+					const n = toNumber(cellOf(displayData[s][c], priceType))
 					return n != undefined
 				})
 			),
-		[sortedSources, currencies, mergedData, priceType]
+		[sortedSources, currencies, displayData, priceType]
 	)
 
 	const resetCurrencies = () => {
@@ -418,28 +613,30 @@ function FXMatrixGrid({
 	return (
 		<StatsTipProvider>
 			<Box>
-			<Box
-				sx={{
-					display: "flex",
-					alignItems: "center",
-					justifyContent: "space-between",
-					flexWrap: "wrap",
-					gap: 1,
-					mb: 1,
-				}}
-			>
-				<Typography
-					variant="subtitle2"
+				<Box
 					sx={{
-						color: "text.secondary",
-						fontSize: { xs: 12, sm: 14 },
-						width: { xs: "100%", sm: "auto" },
+						display: "flex",
+						alignItems: "center",
+						justifyContent: "space-between",
+						flexWrap: "wrap",
+						gap: 1,
+						mb: 1,
 					}}
 				>
-					以 {from} 为基准 · 每 {amount} 单位 {from} 可兑换的各货币数量
-					（{priceTypeLabels[priceType]}）
-				</Typography>
-				<Box
+					<Typography
+						variant="subtitle2"
+						sx={{
+							color: "text.secondary",
+							fontSize: { xs: 12, sm: 14 },
+							width: { xs: "100%", sm: "auto" },
+						}}
+					>
+						{reverse
+							? `每 ${amount} 单位各货币可兑换的 ${from} 数量`
+							: `以 ${from} 为基准 · 每 ${amount} 单位 ${from} 可兑换的各货币数量`}
+						（{priceTypeLabels[priceType]}）
+					</Typography>
+					<Box
 					sx={{
 						display: "flex",
 						alignItems: "center",
@@ -460,7 +657,7 @@ function FXMatrixGrid({
 						}}
 					>
 						最优价{" "}
-						{sources.filter((s) => !excluded.has(s)).length}/
+						{visibleSources.filter((s) => !excluded.has(s)).length}/
 						{visibleSources.length} 家
 					</Button>
 					<Button
@@ -511,8 +708,8 @@ function FXMatrixGrid({
 						<ToggleButton value="cash">现钞</ToggleButton>
 						<ToggleButton value="remit">现汇</ToggleButton>
 					</ToggleButtonGroup>
+					</Box>
 				</Box>
-			</Box>
 			<Popover
 				open={Boolean(pickerAnchor)}
 				anchorEl={pickerAnchor}
@@ -711,7 +908,7 @@ function FXMatrixGrid({
 					<TableBody>
 						{visibleSources.map((s) => {
 							// 该源各货币最新更新时间：任一 cell 超过 STALE_MS 视为整行可能不准确
-							const rowUpdated = Object.values(mergedData[s] ?? {}).reduce<Date | null>(
+							const rowUpdated = Object.values(displayData[s] ?? {}).reduce<Date | null>(
 								(acc, cell) => {
 									if (!cell?.updated) return acc
 									return !acc || cell.updated.getTime() > acc.getTime() ? cell.updated : acc
@@ -720,7 +917,7 @@ function FXMatrixGrid({
 							)
 							const rowStale = mounted && !!rowUpdated && isStale(rowUpdated)
 							return (
-							<TableRow key={s} hover>
+								<TableRow key={s} hover>
 								<TableCell
 									component="th"
 									scope="row"
@@ -794,7 +991,7 @@ function FXMatrixGrid({
 									</Box>
 								</TableCell>
 								{currencies.map((c) => {
-									const v = cellOf(mergedData[s][c], priceType)
+									const v = cellOf(displayData[s][c], priceType)
 									const n = toNumber(v)
 									const highlight =
 										!rowStale && n != undefined && n == best[c]
@@ -821,7 +1018,7 @@ function FXMatrixGrid({
 												<StatsTip
 													content={
 														<>
-															{mergedData[s][c]?.updated && (
+															{displayData[s][c]?.updated && (
 																<Typography
 																	variant="caption"
 																	color="text.secondary"
@@ -831,7 +1028,7 @@ function FXMatrixGrid({
 																	}}
 																>
 																	更新于{" "}
-																	{mergedData[s][c]!
+																	{displayData[s][c]!
 																		.updated!.toLocaleString(
 																			"zh-CN"
 																		)}
@@ -843,8 +1040,8 @@ function FXMatrixGrid({
 																stats={colStats[c]!}
 																betterLower={false}
 															/>
-														{mergedData[s][c]?.path &&
-															mergedData[s][c]!.path!.length >
+														{displayData[s][c]?.path &&
+															displayData[s][c]!.path!.length >
 																1 && (
 																	<Typography
 																		variant="caption"
@@ -856,14 +1053,14 @@ function FXMatrixGrid({
 																		}}
 																	>
 																		过桥：{" "}
-																		{mergedData[s][
+																		{displayData[s][
 																			c
 																		]!.path!.join(
 																			" → "
 																		)}
 																	</Typography>
 																)}
-															{mergedData[s][c]?.alias && (
+															{displayData[s][c]?.alias && (
 																<Typography
 																	variant="caption"
 																	sx={{
@@ -873,7 +1070,7 @@ function FXMatrixGrid({
 																	}}
 																>
 																	实际按{" "}
-																	{mergedData[s][c]!
+																	{displayData[s][c]!
 																		.alias}{" "}
 																	计（CNY/CNH 归一化）
 																</Typography>
@@ -884,8 +1081,8 @@ function FXMatrixGrid({
 													<span
 														style={{
 															cursor: "help",
-															...(mergedData[s][c]?.path &&
-															mergedData[s][c]!.path!
+															...(displayData[s][c]?.path &&
+															displayData[s][c]!.path!
 																.length > 1
 																? {
 																		textDecoration:
@@ -905,11 +1102,16 @@ function FXMatrixGrid({
 										</TableCell>
 									)
 								})}
-							</TableRow>
+								</TableRow>
 							)
 						})}
 						{slowSources
-							.filter((s) => !(s in extraRows))
+							.filter(
+								(s) =>
+									extraRows.key == rowParamsKey &&
+									!(s in extraRows.data) &&
+									sourceStatus[s] != "success"
+							)
 							.map((s) => (
 								<TableRow key={s}>
 									<TableCell
@@ -933,16 +1135,88 @@ function FXMatrixGrid({
 										>
 											<SourceIcon source={s} />
 											{getName(s)}
-											<Button
-												size="small"
-												variant="tonal"
-												disabled={loadingSource != null}
-												onClick={() => handleLoadSource(s)}
+											<Tooltip
+												title={sourceError[s] ?? ""}
+												describeChild
 											>
-												{loadingSource == s
-													? "加载中..."
-													: "点击加载"}
-											</Button>
+												<Button
+													size="small"
+													variant="tonal"
+													disabled={
+														sourceStatus[s] ==
+														"loading"
+													}
+													onClick={() =>
+														handleLoadSource(s)
+													}
+												>
+													{sourceStatus[s] ==
+													"loading"
+														? "加载中..."
+														: sourceStatus[s] ==
+																"error"
+															? "加载失败，重试"
+															: "点击加载"}
+												</Button>
+											</Tooltip>
+										</Box>
+									</TableCell>
+								</TableRow>
+							))}
+						{Object.keys(sourceStatus)
+							.filter(
+								(s) =>
+									extraRows.key == rowParamsKey &&
+									!slowSources.includes(s) &&
+									(sourceStatus[s] == "error" ||
+										sourceStatus[s] == "loading") &&
+									!(s in extraRows.data) &&
+									!visibleSources.includes(s)
+							)
+							.map((s) => (
+								<TableRow key={s}>
+									<TableCell
+										component="th"
+										scope="row"
+										colSpan={currencies.length + 1}
+										sx={{
+											position: "sticky",
+											left: 0,
+											bgcolor: "background.paper",
+											zIndex: 1,
+											whiteSpace: "nowrap",
+										}}
+									>
+										<Box
+											sx={{
+												display: "flex",
+												alignItems: "center",
+												gap: 1,
+											}}
+										>
+											<SourceIcon source={s} />
+											{getName(s)}
+											<Tooltip
+												title={sourceError[s] ?? ""}
+												describeChild
+											>
+												<Button
+													size="small"
+													variant="tonal"
+													disabled={
+														sourceStatus[s] ==
+														"loading"
+													}
+													onClick={() =>
+														handleLoadSource(s)
+													}
+												>
+													{sourceStatus[s] ==
+													"loading"
+														? "加载中..."
+														: "加载失败，重试"}
+												</Button>
+											</Tooltip>
 										</Box>
 									</TableCell>
 								</TableRow>
