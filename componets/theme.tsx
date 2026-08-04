@@ -77,11 +77,12 @@ const buildShadows = (dark: boolean): Shadows => {
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
 	const [mode, setMode] = React.useState<ThemeMode>("light")
+	// hydration 门闩：读档前持久化 effect 不得写回，避免 StrictMode 双执行下用默认值覆盖存档
+	const [themeHydrated, setThemeHydrated] = React.useState(false)
 
-	// 读档完成前禁止写入：避免挂载时用默认 light 覆盖用户 localStorage 存档
-	const loadedRef = React.useRef(false)
-
-	// 挂载后读取偏好，避免 SSR 首帧与客户端暗色偏好不一致导致 hydration 警告
+	// 挂载后读取偏好，避免 SSR 首帧与客户端暗色偏好不一致导致 hydration 警告；
+	// 同时置位 hydration 门闩——读档与门闩是同一 effect 内的 state 更新，
+	// StrictMode 双执行 effect 期间 state 尚未提交，持久化 effect 因此不可能在读到存档前写回
 	React.useEffect(() => {
 		const stored = localStorage.getItem(THEME_KEY)
 		if (stored == "light" || stored == "dark") {
@@ -89,16 +90,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 		} else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
 			setMode("dark")
 		}
-	}, [])
-
-	React.useEffect(() => {
-		if (!loadedRef.current) return
-		localStorage.setItem(THEME_KEY, mode)
-	}, [mode])
-
-	// 标记读档完成（须声明在持久化 effect 之后：首轮渲染持久化先跳过，state 更新后再写）
-	React.useEffect(() => {
-		loadedRef.current = true
+		setThemeHydrated(true)
 	}, [])
 
 	const theme = React.useMemo(
@@ -344,13 +336,21 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 		[mode]
 	)
 
-	const value = React.useMemo(
-		() => ({
-			mode,
-			toggle: () => setMode((m) => (m == "light" ? "dark" : "light")),
-		}),
-		[mode]
-	)
+	// 提交后持久化：仅在 hydration 完成后写回当前已提交的 mode，事件处理器不再触碰 localStorage
+	React.useEffect(() => {
+		if (!themeHydrated) return
+		try {
+			localStorage.setItem(THEME_KEY, mode)
+		} catch {
+			// localStorage 不可用时忽略持久化
+		}
+	}, [mode, themeHydrated])
+
+	const toggle = React.useCallback(() => {
+		setMode((m) => (m == "light" ? "dark" : "light"))
+	}, [])
+
+	const value = React.useMemo(() => ({ mode, toggle }), [mode, toggle])
 
 	return (
 		<ThemeModeContext.Provider value={value}>
