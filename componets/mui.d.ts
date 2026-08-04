@@ -6,7 +6,10 @@ declare module "@mui/material/styles" {
 		brandSoft: string
 		surfaceMuted: string
 	}
-	interface PaletteOptions extends Partial<Palette> {}
+	interface PaletteOptions {
+		brandSoft?: string
+		surfaceMuted?: string
+	}
 }
 
 declare module "@mui/material/Button" {
