@@ -20,9 +20,8 @@ export function useBestPriceSources() {
 	const [excluded, setExcluded] = React.useState<Set<string>>(
 		() => new Set(NON_BANK_SOURCES)
 	)
-
-	// 读档完成前禁止写入：避免挂载时用默认排除集覆盖用户 localStorage 存档
-	const loadedRef = React.useRef(false)
+	// hydration 门闩：读档前持久化 effect 不得写回，避免 StrictMode 双执行下用默认值覆盖存档
+	const [hydrated, setHydrated] = React.useState(false)
 
 	React.useEffect(() => {
 		try {
@@ -36,21 +35,18 @@ export function useBestPriceSources() {
 		} catch {
 			// localStorage 不可用时使用默认排除集
 		}
+		setHydrated(true)
 	}, [])
 
+	// 提交后持久化：仅在 hydration 完成后写回当前已提交的排除集，事件处理器不再触碰 localStorage
 	React.useEffect(() => {
-		if (!loadedRef.current) return
+		if (!hydrated) return
 		try {
 			localStorage.setItem(KEY, JSON.stringify(Array.from(excluded)))
 		} catch {
 			// localStorage 不可用时忽略持久化
 		}
-	}, [excluded])
-
-	// 标记读档完成（须声明在持久化 effect 之后：首轮渲染持久化先跳过，state 更新后再写）
-	React.useEffect(() => {
-		loadedRef.current = true
-	}, [])
+	}, [excluded, hydrated])
 
 	const toggle = (source: string) => {
 		setExcluded((prev) => {
