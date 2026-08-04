@@ -49,12 +49,16 @@ export const STALE_MS = 36 * 60 * 60 * 1000
 export const isStale = (updated: Date) =>
 	Date.now() - updated.getTime() > STALE_MS
 
-// hydration 安全：SSR 与客户端首帧都返回 false，
-// 挂载后才计算（避免 Date.now() 边界导致 server/client 渲染不一致）
+// hydration 安全：服务端快照返回 false，客户端挂载后经 useSyncExternalStore
+// 检查翻转为 true（无 effect/setState，避免 Date.now() 边界渲染不一致）
+const neverSubscribe = () => () => {}
+
 export function useMounted() {
-	const [mounted, setMounted] = React.useState(false)
-	React.useEffect(() => setMounted(true), [])
-	return mounted
+	return React.useSyncExternalStore(
+		neverSubscribe,
+		() => true,
+		() => false
+	)
 }
 
 export function StatsTooltip({
@@ -68,7 +72,6 @@ export function StatsTooltip({
 	stats: ColumnStats
 	betterLower: boolean
 }) {
-	const theme = useTheme()
 	const red = "#ef5350"
 	const green = "#66bb6a"
 
@@ -137,7 +140,7 @@ export function StatsTooltip({
 }
 
 // 移动端判定 context：表格顶层算一次，避免每个单元格 StatsTip 各建 matchMedia 监听（348+ 实例卡顿源）
-const MobileContext = React.createContext<boolean | null>(null)
+const MobileContext = React.createContext(false)
 
 // 表格容器用它包裹一次：把 isMobile 传给所有 StatsTip
 export function StatsTipProvider({ children }: { children: React.ReactNode }) {
@@ -155,10 +158,7 @@ export function StatsTip({
 	content: React.ReactNode
 	children: React.ReactElement<{ onClick?: (e: React.MouseEvent<HTMLElement>) => void }>
 }) {
-	const theme = useTheme()
-	const ctxMobile = React.useContext(MobileContext)
-	const isMobile =
-		ctxMobile ?? useMediaQuery(theme.breakpoints.down("sm"))
+	const isMobile = React.useContext(MobileContext)
 	const [anchor, setAnchor] = React.useState<HTMLElement | null>(null)
 
 	// 移动端：点击弹窗
