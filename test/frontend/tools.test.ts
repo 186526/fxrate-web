@@ -140,8 +140,7 @@ describe("getCurrenciesDetails", () => {
 		expect(err).toHaveBeenCalled()
 	})
 
-	it("来源/支持货币变化（partial map）时缓存 key 指纹变化，不命中旧数据", async () => {
-		const currencies = { bankA: ["CNY", "USD"], bankB: ["CNY", "USD"] }
+	it("来源/支持货币变化（partial map）时缓存 key 指纹变化，不命中旧数据", async () => {		const currencies = { bankA: ["CNY", "USD"], bankB: ["CNY", "USD"] }
 		const stats = createBatchMock({ getFXRate: okRate })
 
 		const r1 = await getCurrenciesDetails(currencies, "USD", "CNY", undefined, {
@@ -188,6 +187,48 @@ describe("getCurrenciesDetails", () => {
 			{ amount: 100, precision: 4 }
 		)
 		expect(stats.batches).toBeGreaterThan(beforePartial)
+	})
+
+	it("decimal amount 契约：小数金额原样透传给后端（不取整、不丢失小数）", async () => {
+		const stats = createBatchMock({ getFXRate: okRate })
+		await getCurrenciesDetails({ bankA: ["CNY", "USD"] }, "USD", "CNY", undefined, {
+			amount: 100.5,
+			precision: 4,
+			force: true,
+		})
+		// 每个来源两个方向（正向/反向）的请求都应携带 100.5 而非 100/101
+		const amounts = stats.bodies.flat().map((r) => r.params.amount)
+		expect(amounts).toEqual([100.5, 100.5])
+	})
+
+	it("oneWay 源（如 alipay 只注册 CNY→外币 购汇方向）不产生结汇价，仅透出购汇价", async () => {
+		const stats = createBatchMock({
+			getFXRate: (p) => {
+				// 反向（外币→CNY）无结汇业务：oneWay 后端不写反向边，返回无报价响应
+				if (p.from == "USD" && p.to == "CNY") return { updated: isoNow() }
+				return okRate(p)
+			},
+		})
+
+		const result = await getCurrenciesDetails(
+			{ alipay: ["CNY", "USD"] },
+			"USD",
+			"CNY",
+			undefined,
+			{ amount: 100, precision: 4, force: true }
+		)
+
+		expect(result).toHaveLength(1)
+		expect(result[0].name).toBe("alipay")
+		// 购汇价来自反向（CNY→USD）请求的倒数换算：100²/7.05 = 1418.4397、100²/7.08 = 1412.4294
+		expect(result[0].type.buy).toEqual({
+			cash: 1418.4397,
+			remit: 1412.4294,
+		})
+		// oneWay 无反向边 → 结汇价（外币→CNY 直连）不产生
+		expect(result[0].type.sell).toBeUndefined()
+		// 反向请求仍发出（两个方向都查），只是响应无可用报价
+		expect(stats.methods.getFXRate).toBe(2)
 	})
 })
 
@@ -323,8 +364,7 @@ describe("getRatesMatrix / getSourceMatrixRow", () => {
 		expect(Number.isNaN((row.USD.updated as Date).getTime())).toBe(false)
 	})
 
-	it("getSourceMatrixRow 批量失败时向上抛错，供矩阵行显示重试状态", async () => {
-		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
+	it("getSourceMatrixRow 批量失败时向上抛错，供矩阵行显示重试状态", async () => {		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 		try {
 			createBatchMock({
 				getFXRate: () => {
@@ -353,5 +393,31 @@ describe("getRatesMatrix / getSourceMatrixRow", () => {
 		await expect(
 			getSourceMatrixRow("mastercard", ["USD"], ["USD"], "CNY")
 		).rejects.toThrow("暂无可用报价")
+	})
+
+	it("getRatesMatrix 与 getSourceMatrixRow 同样透传小数金额到后端", async () => {
+		const stats = createBatchMock({
+			listFXRates: (p) => {
+				const row: Record<string, unknown> = {}
+				for (const c of ["USD", "EUR"]) {
+					row[c] = { ...okRate(p), middle: c == "USD" ? 7.1 : 8.2 }
+				}
+				return row
+			},
+		})
+		await getRatesMatrix({ bankA: ["CNY", "USD", "EUR"] }, "CNY", {
+			amount: 0.5,
+			precision: 4,
+		})
+		expect(stats.bodies.flat().map((r) => r.params.amount)).toEqual([0.5])
+
+		const rowStats = createBatchMock({ getFXRate: okRate })
+		await getSourceMatrixRow("visa", ["USD"], ["USD"], "CNY", {
+			amount: 250.25,
+			precision: 4,
+		})
+		expect(rowStats.bodies.flat().map((r) => r.params.amount)).toEqual([
+			250.25,
+		])
 	})
 })

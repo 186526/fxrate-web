@@ -285,8 +285,8 @@ export default function CurrencyChooser({
 					value={amountText}
 					onChange={(e) => handleAmountChange(e.target.value)}
 					inputProps={{
-						min: 1,
-						step: 100,
+						min: Number.MIN_VALUE,
+						step: "any",
 						style: { textAlign: "right" },
 					}}
 					sx={{ flex: 1, minWidth: 0 }}

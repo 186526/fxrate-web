@@ -51,6 +51,14 @@ const parsePrecision = (value: string | null): number | null => {
 		: null
 }
 
+// 金额契约：接受正有限十进制数（如 100.5，前端/后端全程小数透传），
+// 非法（NaN/Infinity/空）、零或负数一律回退默认 100，防止 URL 注入坏值
+const parseAmount = (value: string | null): number => {
+	if (value == null) return 100
+	const n = Number(value)
+	return Number.isFinite(n) && n > 0 ? n : 100
+}
+
 const buildViewUrl = (
 	view: View,
 	pairFrom: string,
@@ -156,7 +164,7 @@ export default function Index({
 	)
 	const matrixStateInitializedRef = React.useRef(initialIsMatrix)
 	const [amount, setAmount] = React.useState(
-		Number(searchParams.get("amount")) || 100
+		parseAmount(searchParams.get("amount"))
 	)
 	const [precision, setPrecision] = React.useState(
 		parsePrecision(searchParams.get("precision")) ?? 4
@@ -229,7 +237,7 @@ export default function Index({
 	React.useEffect(() => {
 		const urlFrom = searchParams.get("from")
 		const urlTo = searchParams.get("to")
-		setAmount(Number(searchParams.get("amount")) || 100)
+		setAmount(parseAmount(searchParams.get("amount")))
 		setPrecision(parsePrecision(searchParams.get("precision")) ?? 4)
 		if (pathname == "/matrix") {
 			const nextReverse = urlFrom == null && urlTo != null

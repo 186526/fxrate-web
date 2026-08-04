@@ -123,3 +123,52 @@ describe("CurrencyChooser 金额标签", () => {
 		expect(screen.getByLabelText("金额 (每列货币)")).toBeInTheDocument()
 	})
 })
+
+describe("CurrencyChooser decimal amount 契约", () => {
+	it("输入小数金额回调原始小数（不取整），且不触发外部同步覆盖输入", async () => {
+		const user = userEvent.setup()
+		const onAmountChange = vi.fn()
+		renderChooser({ amount: 100.5, onAmountChange })
+
+		const input = screen.getByRole("spinbutton")
+		expect((input as HTMLInputElement).value).toBe("100.5")
+
+		await user.clear(input)
+		await user.type(input, "250.25")
+		expect(onAmountChange).toHaveBeenLastCalledWith(250.25)
+		// 输入过程外部 amount 同步不会把小数文本覆盖回默认
+		expect((input as HTMLInputElement).value).toBe("250.25")
+	})
+
+	it("非法金额（0/负数/空）不触发 onAmountChange", async () => {
+		const user = userEvent.setup()
+		const onAmountChange = vi.fn()
+		renderChooser({ onAmountChange })
+
+		const input = screen.getByRole("spinbutton")
+		await user.clear(input)
+		await user.type(input, "0")
+		expect(onAmountChange).not.toHaveBeenLastCalledWith(0)
+
+		await user.clear(input)
+		await user.type(input, "-5")
+		expect(onAmountChange).not.toHaveBeenLastCalledWith(-5)
+
+		await user.clear(input)
+		expect(onAmountChange).not.toHaveBeenCalledWith(0)
+	})
+
+	it("HTML 有效性：小数金额通过 checkValidity（step=any），0 被 min 约束拒绝", () => {
+		renderChooser()
+		const input = screen.getByRole("spinbutton") as HTMLInputElement
+
+		input.value = "0.5"
+		expect(input.checkValidity()).toBe(true)
+		input.value = "100.5"
+		expect(input.checkValidity()).toBe(true)
+
+		// 0 不满足"正有限小数"契约 → 浏览器约束（min=Number.MIN_VALUE）拒绝
+		input.value = "0"
+		expect(input.checkValidity()).toBe(false)
+	})
+})
