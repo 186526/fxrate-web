@@ -6,6 +6,28 @@ body {
 	-webkit-tap-highlight-color: transparent;
 }
 
+/* Phase 4B 任务 13：预绘制主题（layout 的 beforeInteractive 脚本在 hydration/首帧绘制前
+   写入 <html data-theme>）。首帧背景与 color-scheme 即按主题，暗色用户不再先看到白屏；
+   html[data-theme=dark] body 比 Emotion CssBaseline 的 body 规则特异性高，hydration
+   校正前也不会被 SSR 的浅色 body 背景覆盖。 */
+html[data-theme="dark"] {
+	background-color: #10171c;
+	color-scheme: dark;
+}
+
+html[data-theme="dark"] body {
+	background-color: #10171c;
+}
+
+html[data-theme="light"] {
+	background-color: #fbfaf7;
+	color-scheme: light;
+}
+
+html[data-theme="light"] body {
+	background-color: #fbfaf7;
+}
+
 /* 旧版 iOS 惯性滚动（overflow 容器内表格滑动更跟手） */
 .MuiTableContainer-root {
 	-webkit-overflow-scrolling: touch;

@@ -1,5 +1,6 @@
 "use client"
 import * as React from "react"
+import { useSyncExternalStore } from "react"
 
 import {
 	alpha,
@@ -8,6 +9,7 @@ import {
 	type Shadows,
 } from "@mui/material/styles"
 import CssBaseline from "@mui/material/CssBaseline"
+import { THEME_ATTR, THEME_KEY } from "./theme-init"
 
 export type ThemeMode = "light" | "dark"
 
@@ -23,7 +25,52 @@ export function useThemeMode() {
 	return React.useContext(ThemeModeContext)
 }
 
-const THEME_KEY = "fxrate-theme"
+// —— 主题 store（Phase 4B 任务 13）——
+// 以 <html data-theme>（layout 的 beforeInteractive 预绘制脚本在 hydration 前写入）
+// 为单一事实来源；属性缺失（jsdom/测试/脚本未运行）时回落 localStorage → matchMedia。
+// useSyncExternalStore 的 getServerSnapshot 让 hydration 首帧与服务端一致（无 mismatch），
+// 提交后再按客户端快照校正为预绘制脚本确定的主题。
+const resolveTheme = (): ThemeMode => {
+	if (typeof document === "undefined") return "light"
+	const attr = document.documentElement.getAttribute(THEME_ATTR)
+	if (attr == "dark") return "dark"
+	if (attr == "light") return "light"
+	try {
+		const stored = localStorage.getItem(THEME_KEY)
+		if (stored == "dark" || stored == "light") return stored
+	} catch {
+		// localStorage 不可用时忽略
+	}
+	try {
+		if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+			return "dark"
+		}
+	} catch {
+		// matchMedia 不可用时忽略
+	}
+	return "light"
+}
+
+const themeListeners = new Set<() => void>()
+const subscribeTheme = (listener: () => void): (() => void) => {
+	themeListeners.add(listener)
+	return () => {
+		themeListeners.delete(listener)
+	}
+}
+const notifyThemeListeners = (): void => {
+	for (const listener of themeListeners) listener()
+}
+const applyThemeToDocument = (mode: ThemeMode): void => {
+	document.documentElement.setAttribute(THEME_ATTR, mode)
+	document.documentElement.style.colorScheme = mode
+}
+const setThemeMode = (mode: ThemeMode): void => {
+	applyThemeToDocument(mode)
+	notifyThemeListeners()
+}
+const getThemeSnapshot = (): ThemeMode => resolveTheme()
+const getThemeServerSnapshot = (): ThemeMode => "light"
 
 // Sunoaki 设计语言（源自 sunoaki.net 自研 VitePress 主题，CSS 实测提取）：
 // 暖色纸张感（浅色 bg #fbfaf7 / 暗色 slate #10171c）+ 深青绿 accent（#2f6f73 / #8fc3c6），
@@ -76,21 +123,20 @@ const buildShadows = (dark: boolean): Shadows => {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-	const [mode, setMode] = React.useState<ThemeMode>("light")
-	// hydration 门闩：读档前持久化 effect 不得写回，避免 StrictMode 双执行下用默认值覆盖存档
-	const [themeHydrated, setThemeHydrated] = React.useState(false)
+	// 客户端快照：预绘制脚本写入的 <html data-theme>（或回落 localStorage/matchMedia）；
+	// 服务端快照恒为 light——hydration 首帧与服务端 SSR 一致，提交后自动校正为真实主题。
+	const mode = useSyncExternalStore(
+		subscribeTheme,
+		getThemeSnapshot,
+		getThemeServerSnapshot
+	)
 
-	// 挂载后读取偏好，避免 SSR 首帧与客户端暗色偏好不一致导致 hydration 警告；
-	// 同时置位 hydration 门闩——读档与门闩是同一 effect 内的 state 更新，
-	// StrictMode 双执行 effect 期间 state 尚未提交，持久化 effect 因此不可能在读到存档前写回
+	// 兜底：预绘制脚本未运行（jsdom/测试/脚本被拦）时把解析出的主题写回 <html>，
+	// 保证 globals.css 的 html[data-theme] 规则仍生效；真实页面属性已就绪则跳过。
 	React.useEffect(() => {
-		const stored = localStorage.getItem(THEME_KEY)
-		if (stored == "light" || stored == "dark") {
-			setMode(stored)
-		} else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-			setMode("dark")
+		if (!document.documentElement.getAttribute(THEME_ATTR)) {
+			applyThemeToDocument(resolveTheme())
 		}
-		setThemeHydrated(true)
 	}, [])
 
 	const theme = React.useMemo(
@@ -336,19 +382,20 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 		[mode]
 	)
 
-	// 提交后持久化：仅在 hydration 完成后写回当前已提交的 mode，事件处理器不再触碰 localStorage
+	// 持久化：仅在 mode 与 <html> 当前解析一致时写回——hydration 中间态（服务端快照
+	// "light"）若被写回会覆盖 dark 存档；useSyncExternalStore 校正到真实主题后再落盘。
 	React.useEffect(() => {
-		if (!themeHydrated) return
+		if (mode !== resolveTheme()) return
 		try {
 			localStorage.setItem(THEME_KEY, mode)
 		} catch {
 			// localStorage 不可用时忽略持久化
 		}
-	}, [mode, themeHydrated])
+	}, [mode])
 
 	const toggle = React.useCallback(() => {
-		setMode((m) => (m == "light" ? "dark" : "light"))
-	}, [])
+		setThemeMode(mode == "light" ? "dark" : "light")
+	}, [mode])
 
 	const value = React.useMemo(() => ({ mode, toggle }), [mode, toggle])
 
