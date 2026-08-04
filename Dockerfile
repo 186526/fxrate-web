@@ -28,6 +28,12 @@ COPY . .
 # procps: next build 需要；git: next-build-id 的 describe 模式需要 git 命令
 RUN apk add --no-cache procps git
 
+# Phase 6 镜像 smoke：FXRATE_PROXY 在构建期注入（next.config.mjs rewrites 的 /api/fxrate
+# 同源代理目标在 build 时被固化进 standalone 产物）。不传 build-arg 时为空串，
+# next.config 的 `env.FXRATE_PROXY || 默认线上地址` 逻辑自动回落，行为与旧镜像一致。
+ARG FXRATE_PROXY
+ENV FXRATE_PROXY=${FXRATE_PROXY}
+
 RUN cd /app && yarn run build
 
 # Production image, copy all the files and run next
@@ -35,6 +41,9 @@ FROM base AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+# 与 builder 阶段同一 build-arg：standalone server 运行时若重新求值 rewrites 也拿到同一目标
+ARG FXRATE_PROXY
+ENV FXRATE_PROXY=${FXRATE_PROXY}
 # Uncomment the following line in case you want to disable telemetry during runtime.
 # ENV NEXT_TELEMETRY_DISABLED=1
 
