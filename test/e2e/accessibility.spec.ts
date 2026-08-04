@@ -32,8 +32,8 @@ const WHITELIST: {
 	// RelativeTime"更新时间"（aria-label 出现在 axe target 里）
 	{ id: "color-contrast", target: /数据更新时间/, html: /数据更新时间/ },
 	// footer 两个版本 tooltip caption（按 aria-label 在 html 中匹配）
-	{ id: "color-contrast", html: /aria-label="fxrate@/ },
-	{ id: "color-contrast", html: /aria-label="fxrate-web@/ },
+	{ id: "color-contrast", html: /aria-label="后端 fxrate@/ },
+	{ id: "color-contrast", html: /aria-label="fxrate-web v/ },
 ]
 
 function nodeWhitelisted(

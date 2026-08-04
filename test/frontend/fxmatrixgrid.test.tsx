@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest"
-import { act, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { createTheme, ThemeProvider } from "@mui/material/styles"
 import FXMatrixGrid from "@/componets/fxmatrixgrid"
@@ -290,5 +290,136 @@ describe("额外行 keyed 快照 / 失败重试 / 计数一致性", () => {
 		expect(
 			screen.queryByRole("button", { name: "最优价 2/1 家" })
 		).not.toBeInTheDocument()
+	})
+
+	it("refreshGeneration 递增（手动刷新）重置已加载的额外行并允许按新代际重新请求", async () => {
+		const user = userEvent.setup()
+		mockedRow.mockResolvedValue({ USD: { middle: 6.99 } })
+		const { rerender } = renderGrid({
+			sourceCurrencies: { bankA: ["USD"], visa: ["USD"] },
+		})
+
+		await user.click(screen.getByRole("button", { name: "点击加载" }))
+		expect(await screen.findByText("6.99")).toBeInTheDocument()
+		expect(mockedRow).toHaveBeenCalledTimes(1)
+
+		// 手动刷新：refreshGeneration 递增 → rowParamsKey 含新代际 → 额外行清空
+		rerenderGrid(rerender, {
+			refreshGeneration: 1,
+			sourceCurrencies: { bankA: ["USD"], visa: ["USD"] },
+		})
+		expect(screen.queryByText("6.99")).not.toBeInTheDocument()
+		expect(screen.getByRole("button", { name: "点击加载" })).toBeInTheDocument()
+
+		// 新代际下重新加载成功（旧代际的请求不阻止新请求）
+		await user.click(screen.getByRole("button", { name: "点击加载" }))
+		expect(await screen.findByText("6.99")).toBeInTheDocument()
+		expect(mockedRow).toHaveBeenCalledTimes(2)
+	})
+})
+
+describe("矩阵表格语义", () => {
+	it("表格带语义 caption，来源列首单元格为 scope=row 行表头", () => {
+		renderGrid()
+
+		expect(
+			screen.getByRole("table", { name: /基准货币 CNY 的全对矩阵牌价表/ })
+		).toBeInTheDocument()
+		const sourceTh = screen.getByText("bankA").closest("th")
+		expect(sourceTh).toHaveAttribute("scope", "row")
+	})
+
+	it("交叉路径格可聚焦且带经路径折算的 aria-label", () => {
+		renderGrid({
+			data: {
+				bankA: {
+					USD: { middle: 7.1, path: ["CNY", "HKD", "USD"] },
+				},
+			},
+		})
+
+		const cell = screen.getByText("7.1")
+		expect(cell).toHaveAttribute(
+			"aria-label",
+			"7.1，经 CNY → HKD → USD 折算"
+		)
+		expect(cell).toHaveAttribute("tabindex", "0")
+	})
+
+	it("移动端 StatsTip：Enter/Space 键盘激活弹窗，触发格带 aria-haspopup/aria-expanded", async () => {
+		const originalMatchMedia = window.matchMedia
+		window.matchMedia = (() => ({
+			matches: true,
+			media: "",
+			onchange: null,
+			addListener: () => {},
+			removeListener: () => {},
+			addEventListener: () => {},
+			removeEventListener: () => {},
+			dispatchEvent: () => false,
+		})) as unknown as typeof window.matchMedia
+		try {
+			const { unmount } = renderGrid()
+			const cell = screen.getByText("7.1")
+		expect(cell).toHaveAttribute("tabindex", "0")
+		expect(cell).toHaveAttribute("role", "button")
+		expect(cell).toHaveAttribute("aria-haspopup", "dialog")
+			expect(cell).toHaveAttribute("aria-expanded", "false")
+
+			// Enter 激活弹窗：统计内容出现，aria-expanded 翻转；
+			// aria-haspopup=dialog 契约要求弹窗是带可访问名称的 role=dialog
+			fireEvent.keyDown(cell, { key: "Enter" })
+			expect(
+				await screen.findByRole("dialog", { name: "汇率统计详情" })
+			).toBeInTheDocument()
+			expect(await screen.findByText(/平均/)).toBeInTheDocument()
+			expect(cell).toHaveAttribute("aria-expanded", "true")
+
+			// Space 同样可键盘激活：重新挂载后按空格打开弹窗
+			unmount()
+			renderGrid()
+			const cell2 = screen.getByText("7.1")
+			expect(cell2).toHaveAttribute("aria-expanded", "false")
+			fireEvent.keyDown(cell2, { key: " " })
+			expect(await screen.findByText(/平均/)).toBeInTheDocument()
+			expect(cell2).toHaveAttribute("aria-expanded", "true")
+		} finally {
+			window.matchMedia = originalMatchMedia
+		}
+	})
+
+	it("桌面端 StatsTip describeChild：Tooltip 打开后触发格经 aria-describedby 关联统计描述", async () => {
+		const user = userEvent.setup()
+		renderGrid()
+		const cell = screen.getByText("7.1")
+		expect(cell).toHaveAccessibleName("7.1")
+		// 悬停/聚焦都会打开 Tooltip，aria 接线一致：describeChild 让统计内容成为
+		// 触发格的描述（aria-describedby），不覆盖自身名称（如交叉路径 aria-label）
+		await user.hover(cell)
+		expect(await screen.findByText(/平均/)).toBeInTheDocument()
+		expect(cell).toHaveAttribute("aria-describedby")
+		expect(cell).toHaveAccessibleName("7.1")
+	})
+
+	it("过期来源的 StaleIcon 以简短名称暴露图标，并关联详细描述", async () => {
+		const user = userEvent.setup()
+		renderGrid({
+			data: {
+				bankA: {
+					USD: {
+						middle: 7.1,
+						updated: new Date("2020-01-01T00:00:00Z"),
+					},
+				},
+			},
+		})
+
+		const stale = screen.getByRole("img", { name: "数据可能已过期" })
+		expect(stale).toHaveAttribute("tabindex", "0")
+		await user.hover(stale)
+		const tooltip = await screen.findByRole("tooltip")
+		expect(tooltip).toHaveTextContent(/未更新，数据可能不准确/)
+		expect(stale).toHaveAttribute("aria-describedby", tooltip.id)
+		expect(stale).toHaveAccessibleName("数据可能已过期")
 	})
 })

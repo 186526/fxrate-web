@@ -86,11 +86,17 @@ export default function Footer({
 					}}
 				>
 					{backendVersion && (
-						<Tooltip title={backendVersion} placement="bottom">
+						<Tooltip
+							title={backendVersion}
+							placement="bottom"
+							describeChild
+						>
 							<Typography
 								component="span"
 								variant="caption"
 								color="text.secondary"
+								tabIndex={0}
+								aria-label={`后端 ${shortBackend}`}
 								sx={{
 									fontFamily: "monospace",
 									cursor: "help",
@@ -104,10 +110,13 @@ export default function Footer({
 					<Tooltip
 						title={`fxrate-web@${shortBuild}${buildDate ? ` ${buildDate}` : ""} · ${buildId}`}
 						placement="top"
+						describeChild
 					>
 						<Typography
 							variant="caption"
 							color="text.secondary"
+							tabIndex={0}
+							aria-label={`fxrate-web v${version}`}
 							sx={{
 								fontFamily: "monospace",
 								opacity: 0.85,

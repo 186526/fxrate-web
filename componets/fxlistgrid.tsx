@@ -445,6 +445,20 @@ function FXListGrid({
 					stickyHeader
 					sx={{ minWidth: { xs: 640, sm: 720 } }}
 				>
+					<caption
+						style={{
+							position: "absolute",
+							width: 1,
+							height: 1,
+							margin: -1,
+							overflow: "hidden",
+							clip: "rect(0 0 0 0)",
+							whiteSpace: "nowrap",
+						}}
+					>
+						{from} ↔ {to} 银行/平台买卖牌价表（每 {amount} 单位 {to}{" "}
+						折合 {from}）
+					</caption>
 					<TableHead>
 						<TableRow>
 							{columns.map((col) => (
@@ -487,11 +501,12 @@ function FXListGrid({
 									) : (
 										<Tooltip
 											title="数据更新时间"
+											describeChild
 											slotProps={{
 												tooltip: { sx: { fontSize: 13 } },
 											}}
 										>
-											<span>{col.label}</span>
+											<span aria-label={col.label}>{col.label}</span>
 										</Tooltip>
 									)}
 								</TableCell>
@@ -513,85 +528,87 @@ function FXListGrid({
 							]
 							return (
 								<TableRow key={row.id} hover>
-								<TableCell
-									align="left"
-									sx={{
-										position: "sticky",
-										left: 0,
-										zIndex: 1,
-										bgcolor: "background.paper",
-										borderRight: "1px solid",
-										borderColor: "divider",
-										whiteSpace: "nowrap",
-										py: { xs: 0.75, sm: 1 },
-										px: { xs: 0.75, sm: 1.5 },
-									}}
-								>
-								<Box
-									sx={{
-										display: "flex",
-										alignItems: "center",
-										gap: { xs: 0.25, sm: 0.75 },
-										// 移动端限制最大宽度，避免撑爆 sticky 列
-										maxWidth: { xs: 150, sm: "none" },
-									}}
-								>
-									{/* 银行图标、名称及链接/过期标志（单行，名称截断保证行高一致） */}
+									<TableCell
+										component="th"
+										scope="row"
+										align="left"
+										sx={{
+											position: "sticky",
+											left: 0,
+											zIndex: 1,
+											bgcolor: "background.paper",
+											borderRight: "1px solid",
+											borderColor: "divider",
+											whiteSpace: "nowrap",
+											py: { xs: 0.75, sm: 1 },
+											px: { xs: 0.75, sm: 1.5 },
+										}}
+									>
 									<Box
 										sx={{
 											display: "flex",
 											alignItems: "center",
-											gap: 0.5,
-											minWidth: 0,
-											flex: 1,
+											gap: { xs: 0.25, sm: 0.75 },
+											// 移动端限制最大宽度，避免撑爆 sticky 列
+											maxWidth: { xs: 150, sm: "none" },
 										}}
 									>
-										<SourceIcon source={row.source} />
+										{/* 银行图标、名称及链接/过期标志（单行，名称截断保证行高一致） */}
 										<Box
 											sx={{
-												overflow: "hidden",
-												textOverflow: "ellipsis",
-												whiteSpace: "nowrap",
+												display: "flex",
+												alignItems: "center",
+												gap: 0.5,
 												minWidth: 0,
-												flex: { xs: 1, sm: "initial" },
+												flex: 1,
 											}}
 										>
-											{row.name}
+											<SourceIcon source={row.source} />
+											<Box
+												sx={{
+													overflow: "hidden",
+													textOverflow: "ellipsis",
+													whiteSpace: "nowrap",
+													minWidth: 0,
+													flex: { xs: 1, sm: "initial" },
+												}}
+											>
+												{row.name}
+											</Box>
+											{ratesPageURL(row.source) && (
+												<Tooltip title="查看官方外汇牌价页">
+													<Link
+														href={ratesPageURL(row.source)!}
+														target="_blank"
+														rel="noopener noreferrer"
+														aria-label={`${row.name} 官方外汇牌价`}
+														onClick={(e) => e.stopPropagation()}
+														sx={{
+															display: "inline-flex",
+															alignItems: "center",
+															justifyContent: "center",
+															verticalAlign: "middle",
+															lineHeight: 0,
+															color: "text.secondary",
+															opacity: 0.75,
+															flexShrink: 0,
+															"&:hover": {
+																opacity: 1,
+																color: "primary.main",
+															},
+														}}
+													>
+														<OpenInNewIcon sx={{ fontSize: 12 }} />
+													</Link>
+												</Tooltip>
+											)}
+											{row.stale && (
+												<StaleIcon
+													title={`该来源 ${relativeTime(row.updated)} 未更新，数据可能不准确`}
+												/>
+											)}
 										</Box>
-										{ratesPageURL(row.source) && (
-											<Tooltip title="查看官方外汇牌价页">
-												<Link
-													href={ratesPageURL(row.source)!}
-													target="_blank"
-													rel="noopener noreferrer"
-													aria-label={`${row.name} 官方外汇牌价`}
-													onClick={(e) => e.stopPropagation()}
-													sx={{
-														display: "inline-flex",
-														alignItems: "center",
-														justifyContent: "center",
-														verticalAlign: "middle",
-														lineHeight: 0,
-														color: "text.secondary",
-														opacity: 0.75,
-														flexShrink: 0,
-														"&:hover": {
-															opacity: 1,
-															color: "primary.main",
-														},
-													}}
-												>
-													<OpenInNewIcon sx={{ fontSize: 12 }} />
-												</Link>
-											</Tooltip>
-										)}
-										{row.stale && (
-											<StaleIcon
-												title={`该来源 ${relativeTime(row.updated)} 未更新，数据可能不准确`}
-											/>
-										)}
 									</Box>
-								</Box>
 									</TableCell>
 								{cells.map((c) => {
 									const highlight = isBest(c.v, c.target)
@@ -763,22 +780,30 @@ function FXListGrid({
 														</Box>
 													}
 												>
-													<span
-														style={{
-															cursor: "help",
-															...(row.path &&
-															row.path.length > 1
-																? {
-																		textDecoration:
-																			"underline dotted",
-																		textDecorationColor:
-																			"inherit",
-																  }
-																: {}),
-														}}
-													>
-														{formatValue(c.v)}
-													</span>
+												<span
+													style={{
+														cursor: "help",
+														...(row.path &&
+														row.path.length > 1
+															? {
+																	textDecoration:
+																		"underline dotted",
+																	textDecorationColor:
+																		"inherit",
+															  }
+															: {}),
+													}}
+													aria-label={
+														row.path &&
+														row.path.length > 1
+															? `${formatValue(
+																	c.v
+															  )}，经 ${row.path.join(" → ")} 折算`
+															: formatValue(c.v)
+													}
+												>
+													{formatValue(c.v)}
+												</span>
 												</StatsTip>
 											) : (
 												formatValue(c.v)

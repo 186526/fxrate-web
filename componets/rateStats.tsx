@@ -150,24 +150,45 @@ export function StatsTipProvider({ children }: { children: React.ReactNode }) {
 }
 
 // 统计信息容器：桌面端 hover Tooltip，移动端（触摸无 hover）点击 Popover 弹窗
-// children 为触发元素（数字单元格）；content 为统计内容
+// children 为触发元素（数字单元格）；content 为统计内容。
+// 触发元素统一加 tabIndex=0 保证键盘可达：MUI Tooltip 在 focus 时显示，
+// 并经 aria-labelledby/aria-describedby 把 content 暴露给屏幕阅读器。
+// 移动端弹窗分支额外处理 Enter/Space 键盘激活（span 无原生 button 语义，
+// 仅 tabIndex 不会在按键时触发 onClick）并暴露 aria-haspopup/aria-expanded
 export function StatsTip({
 	content,
 	children,
 }: {
 	content: React.ReactNode
-	children: React.ReactElement<{ onClick?: (e: React.MouseEvent<HTMLElement>) => void }>
+	children: React.ReactElement<{
+		onClick?: (e: React.MouseEvent<HTMLElement>) => void
+		onKeyDown?: (e: React.KeyboardEvent<HTMLElement>) => void
+		tabIndex?: number
+		"aria-haspopup"?: React.AriaAttributes["aria-haspopup"]
+		"aria-expanded"?: boolean
+		role?: React.AriaRole
+	}>
 }) {
 	const isMobile = React.useContext(MobileContext)
 	const [anchor, setAnchor] = React.useState<HTMLElement | null>(null)
+	const focusableChild = React.cloneElement(children, { tabIndex: 0 })
 
 	// 移动端：点击弹窗
 	if (isMobile) {
-		const child = React.cloneElement(children, {
+		const child = React.cloneElement(focusableChild, {
+			role: "button",
 			onClick: (e: React.MouseEvent<HTMLElement>) => {
 				setAnchor(e.currentTarget)
 				children.props.onClick?.(e)
 			},
+			onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
+				if (e.key == "Enter" || e.key == " ") {
+					e.preventDefault()
+					setAnchor(e.currentTarget)
+				}
+			},
+			"aria-haspopup": "dialog",
+			"aria-expanded": Boolean(anchor),
 		})
 		return (
 			<>
@@ -189,15 +210,21 @@ export function StatsTip({
 						},
 					}}
 				>
-					{content}
+					{/* aria-haspopup=dialog 契约：弹窗内容须为带可访问名称的 role=dialog */}
+					<Box role="dialog" aria-label="汇率统计详情">
+						{content}
+					</Box>
 				</Popover>
 			</>
 		)
 	}
 	// 桌面端：hover Tooltip（与移动端弹窗同色彩方案：主题 surface + 边框，避免 inverse 白底刺眼）
+	// describeChild：Tooltip 是统计描述（aria-describedby），不覆盖触发格的自身名称
+	// （交叉路径格带 aria-label，二者叠加为「名称 + 描述」）
 	return (
 		<Tooltip
 			title={content}
+			describeChild
 			slotProps={{
 				tooltip: {
 					sx: {
@@ -213,26 +240,35 @@ export function StatsTip({
 				},
 			}}
 		>
-			{children}
+			{focusableChild}
 		</Tooltip>
 	)
 }
 
 export function StaleIcon({ title }: { title: string }) {
+	// 详情没有其他可见入口，因此图标可聚焦；简短 aria-label 提供名称，Tooltip
+	// 通过 describeChild 补充具体更新时间，避免用详情文本覆盖图标名称
 	return (
 		<Tooltip
 			title={title}
+			describeChild
 			slotProps={{ tooltip: { sx: { fontSize: 12 } } }}
 		>
-			<ScheduleIcon
-				fontSize="inherit"
-				sx={{
-					fontSize: 14,
-					color: "text.disabled",
-					cursor: "help",
-					display: "flex",
-				}}
-			/>
+			<span
+				tabIndex={0}
+				role="img"
+				aria-label="数据可能已过期"
+				style={{ display: "inline-flex" }}
+			>
+				<ScheduleIcon
+					fontSize="inherit"
+					sx={{
+						fontSize: 14,
+						color: "text.disabled",
+						display: "flex",
+					}}
+				/>
+			</span>
 		</Tooltip>
 	)
 }

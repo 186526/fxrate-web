@@ -898,6 +898,20 @@ function FXMatrixGrid({
 					stickyHeader
 					sx={{ minWidth: { xs: 780, sm: 960 } }}
 				>
+					<caption
+						style={{
+							position: "absolute",
+							width: 1,
+							height: 1,
+							margin: -1,
+							overflow: "hidden",
+							clip: "rect(0 0 0 0)",
+							whiteSpace: "nowrap",
+						}}
+					>
+						基准货币 {from} 的全对矩阵牌价表（每 {amount} 单位各货币
+						{reverse ? "折合" : "兑换"} {from}）
+					</caption>
 					<TableHead>
 						<TableRow>
 							<TableCell
@@ -1122,23 +1136,35 @@ function FXMatrixGrid({
 														</>
 													}
 												>
-													<span
-														style={{
-															cursor: "help",
-															...(displayData[s][c]?.path &&
-															displayData[s][c]!.path!
-																.length > 1
-																? {
-																		textDecoration:
-																			"underline dotted",
-																		textDecorationColor:
-																			"inherit",
-																  }
-																: {}),
-														}}
-													>
-														{formatValue(v)}
-													</span>
+												<span
+													style={{
+														cursor: "help",
+														...(displayData[s][c]?.path &&
+														displayData[s][c]!.path!
+															.length > 1
+															? {
+																	textDecoration:
+																		"underline dotted",
+																	textDecorationColor:
+																		"inherit",
+															  }
+															: {}),
+													}}
+													aria-label={
+														displayData[s][c]?.path &&
+														displayData[s][c]!.path!
+															.length > 1
+															? `${formatValue(
+																	v
+															  )}，经 ${displayData[s][c]!
+																	.path!.join(
+																		" → "
+																	)} 折算`
+															: formatValue(v)
+													}
+												>
+													{formatValue(v)}
+												</span>
 												</StatsTip>
 											) : (
 												formatValue(v)
