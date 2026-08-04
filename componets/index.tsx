@@ -36,6 +36,7 @@ import {
 	RatesMatrix,
 	SLOW_SOURCES,
 	withTimeout,
+	isAbortError,
 } from "./tools"
 import { useThemeMode } from "./theme"
 import { infoResponse } from "@/lib/fxrate/src/client"
@@ -403,6 +404,10 @@ export default function Index({
 
 	const pairReqRef = React.useRef(0)
 	const matrixReqRef = React.useRef(0)
+	// 视图级 AbortController：参数/视图变化时 abort 在途请求，取消未发送与
+	// 可取消的网络工作（慢源后台批 detached 不受影响，由代际守卫兜底）
+	const pairAbortRef = React.useRef<AbortController | null>(null)
+	const matrixAbortRef = React.useRef<AbortController | null>(null)
 	const activeMatrixKey = matrixViewCacheKey(
 		matrixBase,
 		amount,
@@ -531,6 +536,10 @@ export default function Index({
 		(force: boolean) => {
 			if (!currencies) return
 			const reqId = ++pairReqRef.current
+			// 新请求接管：取消上一批进行中的单对工作（同 key 自动刷新或旧参数请求）
+			pairAbortRef.current?.abort()
+			const controller = new AbortController()
+			pairAbortRef.current = controller
 			const key = activePairKey
 			setPairError(null)
 			const cached = pairCacheRef.current
@@ -580,8 +589,10 @@ export default function Index({
 					// 快源失败的回调不清除错误提示：慢源单独完成不得掩盖失败现场
 					if (!r.fastFailed) setPairError(null)
 				},
-				{ amount, precision, force, bfs: crossRates }
+				{ amount, precision, force, bfs: crossRates, signal: controller.signal }
 			).catch((e) => {
+				// 取消（参数/视图变化/新请求接管）不视为失败，不触碰错误/加载状态
+				if (isAbortError(e)) return
 				if (
 					reqId == pairReqRef.current &&
 					activePairKeyRef.current == key
@@ -605,9 +616,12 @@ export default function Index({
 	)
 
 	// 参数/视图变化时立即作废单对进行中的请求代际，
-	// 防止陈旧响应（旧货币对/矩阵视图期间完成）落地污染 result/loading/pairError
+	// 防止陈旧响应（旧货币对/矩阵视图期间完成）落地污染 result/loading/pairError；
+	// 同时 abort 在途请求，取消未发送与可取消的网络工作
 	React.useEffect(() => {
 		pairReqRef.current++
+		pairAbortRef.current?.abort()
+		pairAbortRef.current = null
 		setPairError(null)
 	}, [
 		view,
@@ -621,9 +635,12 @@ export default function Index({
 
 	// 参数/视图变化时立即作废矩阵进行中的请求代际，防止陈旧响应
 	// （旧基准/金额/精度/方向请求在 300ms 防抖窗口内完成）落地
-	// 污染 matrixCacheRef/matrix/matrixFetchedAt/loading/error
+	// 污染 matrixCacheRef/matrix/matrixFetchedAt/loading/error；
+	// 同时 abort 在途请求（与单对视图独立，互不影响）
 	React.useEffect(() => {
 		matrixReqRef.current++
+		matrixAbortRef.current?.abort()
+		matrixAbortRef.current = null
 		setMatrixError(null)
 	}, [view, matrixBase, amount, precision, matrixReverse])
 
@@ -658,6 +675,9 @@ export default function Index({
 		(force: boolean) => {
 			if (!currencies) return
 			const reqId = ++matrixReqRef.current
+			matrixAbortRef.current?.abort()
+			const controller = new AbortController()
+			matrixAbortRef.current = controller
 			setMatrixError(null)
 			const key = matrixViewCacheKey(
 				matrixBase,
@@ -678,6 +698,7 @@ export default function Index({
 				force,
 				reverse: matrixReverse,
 				skipSources: SLOW_SOURCES,
+				signal: controller.signal,
 			})
 				.then((data) => {
 					if (
@@ -697,6 +718,8 @@ export default function Index({
 					}
 				})
 				.catch((e) => {
+					// 取消（参数/视图变化/新请求接管）不视为失败，不触碰错误/加载状态
+					if (isAbortError(e)) return
 					if (
 						reqId == matrixReqRef.current &&
 						activeMatrixKeyRef.current == key
@@ -726,6 +749,14 @@ export default function Index({
 		const timer = setTimeout(() => fetchMatrix(false), 300)
 		return () => clearTimeout(timer)
 	}, [view, fetchMatrix])
+
+	// 卸载时取消仍在途的请求（路由切换/组件卸载），避免陈旧响应落地与网络浪费
+	React.useEffect(() => {
+		return () => {
+			pairAbortRef.current?.abort()
+			matrixAbortRef.current?.abort()
+		}
+	}, [])
 
 	// 查询参数变化用 Next.js 支持的 Native History API 原地同步，不触发 RSC GET。
 	// 仅在 pathname 与当前视图一致时排队；路径切换会取消 timer 并推进代际。

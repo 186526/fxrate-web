@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest"
-import { act, render, screen } from "@testing-library/react"
+import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { createTheme, ThemeProvider } from "@mui/material/styles"
 import FXMatrixGrid from "@/componets/fxmatrixgrid"
@@ -224,6 +224,29 @@ describe("额外行 keyed 快照 / 失败重试 / 计数一致性", () => {
 
 		expect(screen.queryByText("6.99")).not.toBeInTheDocument()
 		expect(screen.getByRole("button", { name: "点击加载" })).toBeInTheDocument()
+	})
+
+	it("参数变化时取消在途的额外行请求（signal 被 abort，不误伤新参数请求）", async () => {
+		const user = userEvent.setup()
+		const signals: AbortSignal[] = []
+		mockedRow.mockImplementation((_source, _supported, _targets, _from, options) => {
+			const signal = options?.signal
+			if (signal) signals.push(signal)
+			return new Promise<Record<string, RatesMatrixCell>>(() => {})
+		})
+		const { rerender } = renderGrid({
+			sourceCurrencies: { bankA: ["USD"], visa: ["USD"] },
+		})
+
+		await user.click(screen.getByRole("button", { name: "点击加载" }))
+		expect(signals[0].aborted).toBe(false)
+
+		// 参数变化：在途补查请求被取消
+		rerenderGrid(rerender, {
+			amount: 200,
+			sourceCurrencies: { bankA: ["USD"], visa: ["USD"] },
+		})
+		await waitFor(() => expect(signals[0].aborted).toBe(true))
 	})
 
 	it("自动补查失败可区分并可重试：重试成功后数据合并进矩阵", async () => {

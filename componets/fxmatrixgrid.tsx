@@ -25,7 +25,13 @@ import ChecklistIcon from "@mui/icons-material/Checklist"
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents"
 
 import { sourceNamesInZH } from "@/lib/fxrate/src/constant"
-import { RatesMatrix, RatesMatrixCell, getSourceMatrixRow, ratesPageURL } from "@/componets/tools"
+import {
+	RatesMatrix,
+	RatesMatrixCell,
+	getSourceMatrixRow,
+	ratesPageURL,
+	isAbortError,
+} from "@/componets/tools"
 import { useBestPriceSources } from "@/componets/bestPriceSources"
 import { SourceIcon, currencyEmoji } from "@/componets/sourceIcon"
 import { computeStats, StatsTip, StatsTipProvider, StatsTooltip, isStale, StaleIcon, useMounted } from "@/componets/rateStats"
@@ -337,9 +343,15 @@ function FXMatrixGrid({
 	React.useLayoutEffect(() => {
 		rowParamsRef.current = rowParamsKey
 	}, [rowParamsKey])
+	// 额外行请求取消：rowParamsKey 变化/卸载时 abort 全部在途补查
+	// （MasterCard 自动 / Visa 手动 / 交叉补查各自独立，互不误伤）
+	const rowLoadAbortRef = React.useRef<Set<AbortController>>(new Set())
+	const crossFillAbortRef = React.useRef<AbortController | null>(null)
 	const handleLoadSource = React.useCallback(
 		async (source: string) => {
 			const requestKey = rowParamsKey
+			const controller = new AbortController()
+			rowLoadAbortRef.current.add(controller)
 			setSourceStatus((prev) => ({ ...prev, [source]: "loading" }))
 			try {
 				const supported = sourceCurrencies?.[source] ?? []
@@ -348,7 +360,13 @@ function FXMatrixGrid({
 					supported,
 					currencies,
 					from,
-					{ amount, precision, reverse, bfs: crossRates }
+					{
+						amount,
+						precision,
+						reverse,
+						bfs: crossRates,
+						signal: controller.signal,
+					}
 				)
 				// 过期响应（参数已变）直接丢弃，不写状态
 				if (rowParamsRef.current != requestKey) return
@@ -371,13 +389,15 @@ function FXMatrixGrid({
 					)
 				}
 			} catch (e) {
-				// 失败可区分：error 状态渲染"加载失败，重试"行，可手动重试
-				if (rowParamsRef.current != requestKey) return
+				// 取消（参数已变）与过期响应都不写错误状态；其余失败可区分可重试
+				if (isAbortError(e) || rowParamsRef.current != requestKey) return
 				setSourceStatus((prev) => ({ ...prev, [source]: "error" }))
 				setSourceError((prev) => ({
 					...prev,
 					[source]: e instanceof Error ? e.message : String(e),
 				}))
+			} finally {
+				rowLoadAbortRef.current.delete(controller)
 			}
 		},
 		[
@@ -402,6 +422,11 @@ function FXMatrixGrid({
 	React.useEffect(() => {
 		if (lastRowParamsRef.current == rowParamsKey) return
 		lastRowParamsRef.current = rowParamsKey
+		// 参数变化：作废全部在途补查请求（网络层取消 + keyed 守卫防陈旧落地）
+		for (const controller of rowLoadAbortRef.current) controller.abort()
+		rowLoadAbortRef.current.clear()
+		crossFillAbortRef.current?.abort()
+		crossFillAbortRef.current = null
 		autoAttemptedRef.current = {}
 		crossFillRequestRef.current += 1
 		crossFilledRef.current = ""
@@ -409,6 +434,16 @@ function FXMatrixGrid({
 		setSourceStatus({})
 		setSourceError({})
 	}, [rowParamsKey])
+
+	// 卸载时取消全部在途补查请求，避免陈旧响应落地
+	React.useEffect(() => {
+		const rowLoadControllers = rowLoadAbortRef.current
+		return () => {
+			for (const controller of rowLoadControllers) controller.abort()
+			rowLoadControllers.clear()
+			crossFillAbortRef.current?.abort()
+		}
+	}, [])
 
 	React.useEffect(() => {
 		if (!sourceCurrencies || Object.keys(data).length == 0) return
@@ -439,6 +474,9 @@ function FXMatrixGrid({
 		if (!crossRates) {
 			crossFillRequestRef.current += 1
 			crossFilledRef.current = ""
+			// 关闭交叉汇率：取消进行中的 BFS 补查
+			crossFillAbortRef.current?.abort()
+			crossFillAbortRef.current = null
 			return
 		}
 		if (!sourceCurrencies || Object.keys(data).length == 0) return
@@ -448,6 +486,9 @@ function FXMatrixGrid({
 		if (crossFilledRef.current == params) return
 		crossFilledRef.current = params
 		const requestId = ++crossFillRequestRef.current
+		crossFillAbortRef.current?.abort()
+		const controller = new AbortController()
+		crossFillAbortRef.current = controller
 		;(async () => {
 			for (const s of sources) {
 				if (
@@ -473,7 +514,7 @@ function FXMatrixGrid({
 						supported,
 						missing,
 						from,
-						{ amount, precision, reverse, bfs: true }
+						{ amount, precision, reverse, bfs: true, signal: controller.signal }
 					)
 					if (
 						rowParamsRef.current == requestKey &&
@@ -502,7 +543,10 @@ function FXMatrixGrid({
 						)
 					}
 				} catch (e) {
-					console.error(`Error cross-filling ${s}:`, e)
+					// 取消（参数变化/新一轮补查/关闭交叉汇率）不视为错误
+					if (!isAbortError(e)) {
+						console.error(`Error cross-filling ${s}:`, e)
+					}
 				}
 			}
 		})()

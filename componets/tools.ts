@@ -132,11 +132,59 @@ export async function withTimeout<T>(
 	])
 }
 
+// 构造统一的取消错误（name=AbortError）：被取消的请求不视为真实失败，
+// 调用方据此跳过错误提示；AbortController.abort() 触发的 fetch 错误同名可兼容
+const createAbortError = (): Error => {
+	const error = new Error("请求已取消")
+	error.name = "AbortError"
+	return error
+}
+
+// 识别取消错误：参数/视图变化引起的请求作废，不应展示为加载失败
+export const isAbortError = (e: unknown): boolean =>
+	e instanceof Error && e.name == "AbortError"
+
+// 让 Promise 可被 AbortSignal 提前放弃：abort 触发时立即以 AbortError 拒绝，
+// 不再等待原 Promise settle；原 Promise 后续 resolve/reject 都被消化，
+// 不会产生 unhandled rejection。用于 runBatch 的 client.done() 竞态——
+// client 不向 fetch 传外部 signal（网络层取消由后端/客户端超时兜底），
+// 这里取消的是调用方对该批次结果的等待
+const abortable = <T>(p: Promise<T>, signal?: AbortSignal): Promise<T> => {
+	if (signal == undefined) return p
+	if (signal.aborted) return Promise.reject(createAbortError())
+	return new Promise<T>((resolve, reject) => {
+		const onAbort = () => {
+			signal.removeEventListener("abort", onAbort)
+			reject(createAbortError())
+		}
+		signal.addEventListener("abort", onAbort, { once: true })
+		p.then(
+			(value) => {
+				signal.removeEventListener("abort", onAbort)
+				resolve(value)
+			},
+			(error) => {
+				signal.removeEventListener("abort", onAbort)
+				reject(error)
+			}
+		)
+	})
+}
+
 // 批量请求生命周期兜底：batch() → 排队 → done()。无论排队阶段是否抛错，
 // 都确保 done() 被调用复位 inBatch/请求队列（done() 空队列时直接返回，幂等），
 // 异常不会残留污染同一 client 的后续请求。第一个错误（排队异常或批量内部分
 // 失败）向上抛给调用方按既有降级逻辑处理。
-async function runBatch(client: FXRates, queue: () => void): Promise<void> {
+// signal：可选。已中止时直接抛 AbortError（不触碰 client 状态）；批次在途时
+// abort 立即以 AbortError 拒绝，由调用方放弃该批次结果（代际守卫兜底）
+async function runBatch(
+	client: FXRates,
+	queue: () => void,
+	signal?: AbortSignal
+): Promise<void> {
+	if (signal != undefined && signal.aborted) {
+		throw createAbortError()
+	}
 	client.batch()
 	let error: unknown = null
 	try {
@@ -145,7 +193,7 @@ async function runBatch(client: FXRates, queue: () => void): Promise<void> {
 		error = e
 	}
 	try {
-		await client.done()
+		await abortable(client.done(), signal)
 	} catch (e) {
 		if (error == null) error = e
 	}
@@ -226,6 +274,9 @@ export interface FXDetailsOptions {
 	// 启用交叉汇率：后端 BFS 找中间货币路径（如 CNY→CNH 经 HKD 折算），
 	// 有累积误差，默认关闭；响应中会带 path 字段
 	bfs?: boolean
+	// 取消信号：参数/视图变化时由调用方 abort，取消未发送与可取消的在途工作。
+	// 被取消的请求不写缓存、不回调、不启动慢源后台批（AbortError 向上抛）
+	signal?: AbortSignal
 }
 
 // 交叉汇率响应在 fxRateResponse 基础上多了 path 字段（client 类型未声明，运行时已透传）；
@@ -270,9 +321,22 @@ export async function getCurrenciesDetails(
 	setResult?: (update: FXDetailsUpdate) => void,
 	options: FXDetailsOptions = {}
 ): Promise<FXListProps[]> {
-	const { amount = 100, precision = 4, force = false, bfs = false } = options
+	const {
+		amount = 100,
+		precision = 4,
+		force = false,
+		bfs = false,
+		signal,
+	} = options
 
 	const key = `${fromCurrency}-${toCurrency}-${amount}-p${precision}${bfs ? "-bfs" : ""}|${sourceSupportFingerprint(currencies)}`
+
+	// 预中止：在 cache 读取/回调之前抛 AbortError——被取消的请求即使命中缓存
+	// 也不回调、不展示（契约：被取消的请求不写缓存、不回调）
+	if (signal != undefined && signal.aborted) {
+		throw createAbortError()
+	}
+
 	if (!force) {
 		const cached = cache.get(key)
 		if (cached) {
@@ -423,7 +487,7 @@ export async function getCurrenciesDetails(
 					requestSource(x)
 				}
 			}
-		})
+		}, signal)
 		const requestedFastSources = fastSources.filter(sourceSupportsPair)
 		if (
 			requestedFastSources.length > 0 &&
@@ -432,12 +496,22 @@ export async function getCurrenciesDetails(
 			failed = true
 		}
 	} catch (error) {
+		if (isAbortError(error)) {
+			// 请求被取消（参数/视图变化）：不启动慢源、不写缓存、不回调
+			throw error
+		}
 		console.error("Error getting currency details:", error)
 		failed = true
 		failedMessage =
 			error instanceof Error && /timed out/i.test(error.message)
 				? "请求超时：部分数据源响应缓慢（如 Visa/MasterCard 反爬抓取），请稍后重试"
 				: "获取报价失败：所有数据源均不可用，请稍后重试"
+	}
+
+	// 快源批完成但请求已被取消（如关闭交叉汇率时旧 BFS 批尚未启动慢源）：
+	// 不再启动慢源后台批，避免旧 BFS/Visa 请求继续占用 Card/Chromium 预算
+	if (signal != undefined && signal.aborted) {
+		throw createAbortError()
 	}
 
 	// 慢源后台单独请求（不阻塞主流程），完成后合并结果再回调一次。
@@ -485,6 +559,12 @@ export async function getCurrenciesDetails(
 
 	const result = Object.values(data)
 
+	// 慢源后台批已启动（detached，不受本 signal 影响）后请求被取消：
+	// 快源结果不写缓存、不回调；慢源完成时由 mergeAndNotify 按代际守卫自行决定
+	if (signal != undefined && signal.aborted) {
+		throw createAbortError()
+	}
+
 	// 请求失败不写缓存，保证下次还能重试；
 	// 有慢源待后台批处理时也不写快源结果（慢源成功后才统一写缓存，
 	// 避免命中快源-only 数据）——慢源完成前缓存仍保持缺失状态
@@ -527,6 +607,9 @@ export async function getRatesMatrix(
 		reverse?: boolean
 		// 跳过不请求的源（默认跳过反爬慢源，矩阵视图点击后单独加载）
 		skipSources?: Set<string>
+		// 取消信号：参数/视图变化时 abort，取消未发送与可取消的在途工作；
+		// 被取消的请求不写缓存（AbortError 向上抛）
+		signal?: AbortSignal
 	} = {}
 ): Promise<RatesMatrix> {
 	const {
@@ -535,6 +618,7 @@ export async function getRatesMatrix(
 		force = false,
 		reverse = false,
 		skipSources,
+		signal,
 	} = options
 
 	const skip = skipSources ?? SLOW_SOURCES
@@ -543,6 +627,12 @@ export async function getRatesMatrix(
 	const skipFingerprint =
 		skip.size > 0 ? Array.from(skip).sort().join("+") : "none"
 	const key = `${from}-${amount}-p${precision}-${reverse ? "reverse" : "forward"}|${sourceSupportFingerprint(currencies)}|skip:${skipFingerprint}`
+
+	// 预中止：在 cache 读取之前抛 AbortError——被取消的请求即使命中缓存也不返回数据
+	if (signal != undefined && signal.aborted) {
+		throw createAbortError()
+	}
+
 	if (!force) {
 		const cached = matrixCache.get(key)
 		if (cached) return cached
@@ -591,10 +681,16 @@ export async function getRatesMatrix(
 					reverse
 				)
 			}
-		})
+		}, signal)
 	} catch (error) {
+		if (isAbortError(error)) throw error
 		console.error("Error getting rates matrix:", error)
 		failed = true
+	}
+
+	// 批次完成但请求已被取消：不写缓存（AbortError 向上抛）
+	if (signal != undefined && signal.aborted) {
+		throw createAbortError()
 	}
 
 	if (!failed && Object.keys(data).length > 0) {
@@ -623,9 +719,17 @@ export async function getSourceMatrixRow(
 		reverse?: boolean
 		// 交叉汇率：开启后无直连的货币对经中间货币折算（与单对视图 bfs 一致）
 		bfs?: boolean
+		// 取消信号：参数变化时 abort，取消未发送与可取消的在途工作（AbortError 向上抛）
+		signal?: AbortSignal
 	} = {}
 ): Promise<{ [currency: string]: RatesMatrixCell }> {
-	const { amount = 100, precision = 4, reverse = false, bfs = false } = options
+	const {
+		amount = 100,
+		precision = 4,
+		reverse = false,
+		bfs = false,
+		signal,
+	} = options
 	const client = getFXRateClient()
 
 	const row: { [currency: string]: RatesMatrixCell } = {}
@@ -634,6 +738,11 @@ export async function getSourceMatrixRow(
 		supportedCurrencies.includes(c)
 	)
 	if (targets.length == 0) return row
+
+	// 已中止：不发起任何网络请求（不触碰 client 队列状态）
+	if (signal != undefined && signal.aborted) {
+		throw createAbortError()
+	}
 
 	try {
 		await runBatch(client, () => {
@@ -668,8 +777,9 @@ export async function getSourceMatrixRow(
 					bfs
 				)
 			}
-		})
+		}, signal)
 	} catch (error) {
+		if (isAbortError(error)) throw error
 		console.error(`Error getting matrix row for ${source}:`, error)
 		throw error
 	}
