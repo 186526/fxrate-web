@@ -41,3 +41,8 @@ next-env.d.ts
 # tooling temp
 /.playwright-mcp/
 /.sisyphus/
+
+# playwright artifacts
+/test-results/
+/playwright-report/
+/blob-report/
