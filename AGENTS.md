@@ -9,7 +9,7 @@ FXRate-web 是一个外汇汇率查看网页应用（前端），配套仓库 [1
 ## 目录结构
 
 ```
-app/                 # 路由页面（layout.tsx、page.tsx 服务端组件）
+app/                 # 路由页面（layout.tsx、page.tsx 薄壳、loading.tsx 加载骨架）
 componets/           # 注意：目录名拼写如此（components 的 typo），是有意为之，勿改名
   index.tsx          # 客户端主组件（orchestrator）：状态、数据拉取、视图切换、视图数据缓存、sticky Header、Footer
   currencyChooser.tsx# 货币选择器（受控 Autocomplete + 换向 + 金额；矩阵视图只显示基准货币/金额）
@@ -20,6 +20,7 @@ componets/           # 注意：目录名拼写如此（components 的 typo）�
   sourceIcon.tsx     # 共享来源图标（本地银行 logo 优先，无则类型图标兜底）+ 货币国旗 emoji 映射
   theme.tsx          # MUI 主题 Provider（Sunoaki 风格 dark/light，localStorage 持久化）
   tools.ts           # FXRate client 单例、批量查询、LRU 缓存（货币列表/单对/矩阵）
+  web-vitals.tsx     # Web Vitals 埋点（useReportWebVitals：TTFB/FCP/LCP/CLS/INP 内存环形缓冲记录，挂载于根 layout，不发网络请求）
 lib/fxrate/          # git submodule（fxrate 后端库，含 src/client 的 JSON-RPC client）
 public/
   bank-logos/        # 本地银行/平台 SVG logo（source 代码命名，如 hsbc.cn.svg；来源：Wikimedia Commons / GitHub 开源集合 / iconfont.cn 图标库（cid=23316 银行合集，补全无开源源的小众银行）；均保留 SourceIcon 图标兜底机制）。
@@ -31,6 +32,7 @@ public/
 ## 关键实现要点
 
 - **数据流（客户端驱动）**：`app/page.tsx` 是薄壳（只渲染 `<Index buildId buildTime version />`，不做服务端拉数）；所有汇率数据由客户端 `componets/index.tsx` 经 `componets/tools.ts` → `FXRates` client → fxrate 后端 JSON-RPC 拉取，结果按 key 缓存进 LRUCache（TTL 5 分钟），切换货币对/金额命中缓存时零请求。**切勿把数据拉取搬回 `page.tsx`**——那会让每次 URL 变化都触发整轮服务端重拉（历史卡顿根因）。
+- **路由加载骨架与 Web Vitals（Phase 4）**：`app/loading.tsx`（client）在路由导航/首屏流式的路由段等待期间渲染与正式页面结构对应的最小骨架（sticky 顶栏 + 货币选择器 + 报价表骨架，真实列名无假数据）；薄壳提交后由 `Index` 自身的 280px skeleton 接管浏览器 JSON-RPC 拉数阶段。`componets/web-vitals.tsx` 经 `next/web-vitals` 的 `useReportWebVitals` 记录 TTFB/FCP/LCP/CLS/INP 到模块级环形缓冲（快照暴露在 `window.__FX_WEB_VITALS__`），只做内存记录、不发网络请求/日志、异常静默忽略，渲染 null 挂载于根 layout 跨路由常驻。
 - **视图数据缓存（stale-while-revalidate）**：`index.tsx` 内 `pairCacheRef`/`matrixCacheRef` 各自按参数 key 保存当前 `Index` 挂载期间对应视图最近一次数据，用于同一视图参数重拉时先显示旧数据再后台刷新；`/` 与 `/matrix` 路径切换会重挂载 `Index`，此时由 `tools.ts` 的模块级 LRU 按更完整参数 key 零网络恢复。单对刷新回调携带 `FXDetailsUpdate`（`{data, fastFailed}`）：`fastFailed=false`（正常成功刷新）按行合并时只保留旧 `SLOW_SOURCES` 行（慢源后台批未归/失败兜底），快源行本次未返回（失败/已下线）即移除，避免陈旧报价残留；`fastFailed=true`（快源批量失败/不完整，回调只含慢源或部分快源结果）保留既有全部行并**不清除错误提示**，后到的慢源结果只能追加，不能把有效表格退化为慢源单行、也不能掩盖失败现场。`showCurrencyAllRates()` 允许部分来源失败（如上游被反爬拦截时 `done()` 抛错）并返回成功部分做降级，避免单个来源拖垮整个货币列表。
 - **`tools.ts`**：`FXRate` 是浏览器端默认 client 单例（兼容既有导入）；`getFXRateClient()` 是统一入口——浏览器返回该单例，服务端经 `React.cache` 返回**请求级 client**（薄壳下 SSR 不再拉数，此分支为防御性保留：若未来任何服务端代码调用 tools 数据函数，也不会共享 `batch()/done()/请求队列` 可变状态），所有数据拉取都走它。批量请求一律经 `runBatch(client, queue, signal?)` 生命周期兜底：无论排队阶段是否抛错都保证 `done()` 被调用复位 `inBatch`/队列（幂等），异常不残留污染后续请求。`showCurrencyAllRates()` 批量取各来源支持的货币列表（结果缓存，允许部分来源失败降级返回部分结果）；`getCurrenciesDetails()` 用 `client.batch()` 合并请求，参数含 `amount`（换算金额，默认 100）/ `precision`（默认 4）/ `force`（绕过缓存读）/ `bfs`（交叉汇率开关）/ `signal`（取消信号，见下），按 `from-to-amount-p{precision}[-bfs]|来源支持指纹` 缓存——指纹（`sourceSupportFingerprint`）把参与请求的来源及其支持货币排序后纳入 key，来源/支持货币变化时缓存自动失效，避免命中缺新源的旧数据；回调类型为 `FXDetailsUpdate`（`{data, fastFailed}`，`fastFailed` 表示本次快源批量失败/不完整）；`getRatesMatrix()` 用 `listFXRates` 拉全对矩阵（同样缓存，key 含精度与方向 + 来源/支持指纹 + 排序后的 `skipSources` 指纹）。`getCurrenciesDetails` 的源过滤条件是「来源列表含 from 或 to 任一」（货币列表为部分结果时缺失条目安全跳过），让后端 BFS 路径引擎算交叉汇率（如 CNY↔CNH）；矩阵保留每格的 `{middle, cash, remit, updated}`。
 - **交叉汇率（单对视图）**：Header「交叉汇率」按钮（localStorage key `fxrate-cross-rates`）切换 `bfs` 参数——开启后无直连报价时后端 BFS 找中间货币路径折算（有累积误差，默认关闭）；交叉行银行名旁显示「经 HKD 折算」虚线标识，tooltip 展示完整路径（如 `CNY → HKD → CNH`）。
