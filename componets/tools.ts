@@ -1,17 +1,34 @@
 import { FXListProps } from "@/componets/fxlistgrid"
 import FXRates, { infoResponse, fxRateResponse } from "@/lib/fxrate/src/client"
 import { LRUCache } from "lru-cache"
+import { cache as reactCache } from "react"
 
-export const FXRate = new FXRates(
-	process.env.FXRATE_API
-		? new URL(process.env.FXRATE_API)
-		: new URL(
-				"/api/fxrate",
-				typeof window == "undefined"
-					? "http://localhost:3000"
-					: window.location.origin
-		  )
-)
+// 构造 FXRates client：优先 FXRATE_API（仅服务端注入），否则走同源代理 /api/fxrate
+function buildClient(): FXRates {
+	return new FXRates(
+		process.env.FXRATE_API
+			? new URL(process.env.FXRATE_API)
+			: new URL(
+					"/api/fxrate",
+					typeof window == "undefined"
+						? "http://localhost:3000"
+						: window.location.origin
+			  )
+	)
+}
+
+// 浏览器端默认 client：客户端 JS 单上下文，模块级单例即可（兼容既有 FXRate 导入）
+export const FXRate = buildClient()
+
+// 服务端请求级 client：React.cache 让每次 RSC 请求拿到独立 FXRates 实例，
+// 不共享 batch()/done()/请求队列等可变状态，避免并发请求互相污染
+const getServerClient = reactCache(() => buildClient())
+
+// 取当前执行环境适用的 client：浏览器返回默认单例，服务端返回请求级实例。
+// 所有 tools.ts 数据拉取都经此入口（injection 模式）
+export function getFXRateClient(): FXRates {
+	return typeof window == "undefined" ? getServerClient() : FXRate
+}
 
 // 后端个别源（如 cfets）可能返回 "Invalid Date" 字符串：
 // 无效日期回退为当前时间，避免 toISOString() 抛 RangeError 导致整页 500
@@ -99,20 +116,40 @@ export function ratesPageURL(source: string): string | undefined {
 
 // RSS 订阅链接：后端提供 /rss/:from/:to Atom feed（origin 取自 API 端点，兼容本地后端）
 export function rssURL(from: string, to: string): string {
-	return `${FXRate.endpoint.origin}/rss/${from}/${to}`
+	return `${getFXRateClient().endpoint.origin}/rss/${from}/${to}`
 }
 
-// SSR 预取超时阈值：超过则放弃服务端预取，降级为客户端加载（保证首屏 HTML 不被慢后端拖住）
-export const SSR_TIMEOUT_MS = 3000
+// 数据请求超时阈值（默认）：超过则放弃等待，让调用方降级处理（如客户端首屏不被慢后端拖住）
+export const DEFAULT_TIMEOUT_MS = 3000
 
-export async function withSSRTimeout<T>(
+export async function withTimeout<T>(
 	p: Promise<T>,
-	ms = SSR_TIMEOUT_MS
+	ms = DEFAULT_TIMEOUT_MS
 ): Promise<T | null> {
 	return Promise.race([
 		p,
 		new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
 	])
+}
+
+// 批量请求生命周期兜底：batch() → 排队 → done()。无论排队阶段是否抛错，
+// 都确保 done() 被调用复位 inBatch/请求队列（done() 空队列时直接返回，幂等），
+// 异常不会残留污染同一 client 的后续请求。第一个错误（排队异常或批量内部分
+// 失败）向上抛给调用方按既有降级逻辑处理。
+async function runBatch(client: FXRates, queue: () => void): Promise<void> {
+	client.batch()
+	let error: unknown = null
+	try {
+		queue()
+	} catch (e) {
+		error = e
+	}
+	try {
+		await client.done()
+	} catch (e) {
+		if (error == null) error = e
+	}
+	if (error != null) throw error
 }
 
 const currenciesCache = new LRUCache<string, { [source: string]: string[] }>({
@@ -126,25 +163,23 @@ export async function showCurrencyAllRates(): Promise<{
 	const cached = currenciesCache.get("all")
 	if (cached) return cached
 
-	const Info = (await FXRate.info()) as infoResponse
+	const client = getFXRateClient()
+	const Info = (await client.info()) as infoResponse
 
 	const sources = Info.sources
 
 	const answer: { [source: string]: string[] } = {}
 
-	FXRate.batch()
-
-	for (let k of sources) {
-		const x = k
-		FXRate.listCurrencies(x, (resp) => {
-			answer[x] = resp.currency
-		})
-	}
-
 	// 部分来源失败（如上游被反爬拦截）时 done() 会抛错：
 	// 返回已成功的部分结果做降级，不要拖垮整个货币列表
 	try {
-		await FXRate.done()
+		await runBatch(client, () => {
+			for (const x of sources) {
+				client.listCurrencies(x, (resp) => {
+					answer[x] = resp.currency
+				})
+			}
+		})
 	} catch (e) {
 		console.error("部分来源货币列表获取失败，使用部分结果:", e)
 	}
@@ -167,6 +202,23 @@ const matrixCache = new LRUCache<string, RatesMatrix>({
 	ttl: 1000 * 60 * 5,
 })
 
+// 请求范围指纹：参与请求的来源及其各自支持的货币稳定化后纳入缓存 key。
+// 来源列表或支持货币变化（如新增银行、上游货币覆盖变化）时缓存自动失效，
+// 避免命中缺少新源/新货币的旧数据；undefined/非数组（部分结果）安全处理
+const sourceSupportFingerprint = (currencies: {
+	[source: string]: string[]
+}): string => {
+	return Object.keys(currencies)
+		.sort()
+		.map((s) => {
+			const supported = currencies[s]
+			return Array.isArray(supported)
+				? `${s}:${[...supported].sort().join("+")}`
+				: `${s}:?`
+		})
+		.join("|")
+}
+
 export interface FXDetailsOptions {
 	amount?: number
 	precision?: number
@@ -183,23 +235,54 @@ interface FXRateWithPath extends fxRateResponse {
 	alias?: string
 }
 
+const isUsableFXRateResponse = (response: unknown): response is FXRateWithPath => {
+	if (typeof response != "object" || response == null) return false
+	const rate = response as Record<string, unknown>
+	return [rate.middle, rate.cash, rate.remit].some(
+		(value) =>
+			typeof value == "number" ||
+			(typeof value == "string" && value.trim() != "")
+	)
+}
+
+// getCurrenciesDetails 回调携带的数据更新：data 为本次合并结果。
+// fastFailed=true 表示本次快源批量失败/不完整（回调可能是慢源单独完成或部分快源结果），
+// 调用方应保留既有快源行与错误展示，避免慢源回调覆盖失败现场
+export interface FXDetailsUpdate {
+	data: FXListProps[]
+	fastFailed: boolean
+}
+
+// 慢源后台批代际守卫：同一缓存 key 可能同时存在多个进行中的请求（手动刷新/自动刷新
+// 会发起 force 请求，先前的非 force 慢源批仍在后台抓取）。全局单调递增 id 标记每个
+// 请求，bounded LRU 保存每个 key 的最新代际；慢源批完成时只允许最新代际写缓存，
+// 过期的慢源结果不得覆盖新数据。全局单调 id 保证 key 被清理/重建后新旧请求不会撞号
+// （per-key 计数器删除后会从 1 重新计数，旧请求与重建后的新请求会碰撞）
+const slowSourceLatestGen = new LRUCache<string, number>({
+	max: 100,
+})
+let slowSourceGenCounter = 0
+
 export async function getCurrenciesDetails(
 	currencies: { [source: string]: string[] },
 	toCurrency: string,
 	fromCurrency: string,
-	setResult?: (result: FXListProps[]) => void,
+	setResult?: (update: FXDetailsUpdate) => void,
 	options: FXDetailsOptions = {}
 ): Promise<FXListProps[]> {
 	const { amount = 100, precision = 4, force = false, bfs = false } = options
 
-	const key = `${fromCurrency}-${toCurrency}-${amount}-p${precision}${bfs ? "-bfs" : ""}`
+	const key = `${fromCurrency}-${toCurrency}-${amount}-p${precision}${bfs ? "-bfs" : ""}|${sourceSupportFingerprint(currencies)}`
 	if (!force) {
 		const cached = cache.get(key)
 		if (cached) {
-			if (setResult) setResult(cached)
+			if (setResult) setResult({ data: cached, fastFailed: false })
 			return cached
 		}
 	}
+
+	// client 须先于任何 await 捕获：服务端请求级实例在渲染作用域结束后失效
+	const client = getFXRateClient()
 
 	const data: { [source: string]: FXListProps } = {}
 	let failed = false
@@ -214,16 +297,36 @@ export async function getCurrenciesDetails(
 		(s) => !SLOW_SOURCES.has(s)
 	)
 
+	// 代际登记须在快源批启动前完成：更晚的 force/普通请求在自身快源批阶段就登记
+	// 新代际，使先前请求的过期慢源批完成后不可能写缓存（若登记延后到慢源批启动，
+	// 「先发的慢源批先完成、新 force 快源批尚未完成」的窗口内旧结果仍会写缓存）
+	const slowGeneration =
+		slowSources.length > 0 && typeof window != "undefined"
+			? ++slowSourceGenCounter
+			: null
+	if (slowGeneration != null) {
+		slowSourceLatestGen.set(key, slowGeneration)
+	}
+
+	// 只请求来源货币列表含 from/to 任一的数据源；货币列表可能为部分结果，
+	// 缺失条目（undefined）安全跳过，避免批次排队中途抛错
+	const sourceSupportsPair = (x: string): boolean => {
+		const supported = currencies[x]
+		return (
+			Array.isArray(supported) &&
+			(supported.includes(toCurrency) ||
+				supported.includes(fromCurrency))
+		)
+	}
+
 	const requestSource = (x: string) => {
-		FXRate.getFXRate(
+		client.getFXRate(
 			x,
 			toCurrency,
 			fromCurrency,
 			(resp) => {
-				if (typeof resp != "object") {
-					return
-				}
-				const withPath = resp as FXRateWithPath
+				if (!isUsableFXRateResponse(resp)) return
+				const withPath = resp
 
 				data[x] = data[x] ?? {
 					name: x,
@@ -250,15 +353,13 @@ export async function getCurrenciesDetails(
 			bfs
 		)
 
-		FXRate.getFXRate(
+		client.getFXRate(
 			x,
 			fromCurrency,
 			toCurrency,
 			(resp) => {
-				if (typeof resp != "object") {
-					return
-				}
-				const withPath = resp as FXRateWithPath
+				if (!isUsableFXRateResponse(resp)) return
+				const withPath = resp
 
 				data[x] = data[x] ?? {
 					name: x,
@@ -316,18 +417,20 @@ export async function getCurrenciesDetails(
 	}
 
 	try {
-		FXRate.batch()
-
-		for (const x of fastSources) {
-			if (
-				currencies[x].includes(toCurrency) ||
-				currencies[x].includes(fromCurrency)
-			) {
-				requestSource(x)
+		await runBatch(client, () => {
+			for (const x of fastSources) {
+				if (sourceSupportsPair(x)) {
+					requestSource(x)
+				}
 			}
+		})
+		const requestedFastSources = fastSources.filter(sourceSupportsPair)
+		if (
+			requestedFastSources.length > 0 &&
+			!requestedFastSources.some((source) => data[source] != undefined)
+		) {
+			failed = true
 		}
-
-		await FXRate.done()
 	} catch (error) {
 		console.error("Error getting currency details:", error)
 		failed = true
@@ -337,27 +440,41 @@ export async function getCurrenciesDetails(
 				: "获取报价失败：所有数据源均不可用，请稍后重试"
 	}
 
-	// 慢源后台单独请求（不阻塞主流程），完成后合并结果再回调一次
-	if (slowSources.length > 0) {
+	// 慢源后台单独请求（不阻塞主流程），完成后合并结果再回调一次。
+	// 服务端 SSR 不启动：渲染作用域结束后请求级 client 失效，且 30s+ 抓取不应
+	// 残留服务端进程；客户端挂载后自会补拉慢源
+	if (slowGeneration != null) {
+		// 快源与慢源都成功才写缓存：慢源失败时只降级展示已成功部分，
+		// 不落缓存，保证下次请求仍会重试慢源
+		let slowOk = false
 		const mergeAndNotify = () => {
 			const merged = Object.values(data)
 			if (merged.length > 0) {
-				cache.set(key, merged)
-				if (setResult) setResult(merged)
+				// 快速源失败（failed=true）、慢源失败（slowOk=false）或本请求已不是
+				// 该 key 最新代际（更晚的 force/普通请求已接管）都不写缓存，避免把
+				// 部分结果或过期慢源数据写进缓存导致下次请求不再重试缺失源
+				if (
+					!failed &&
+					slowOk &&
+					slowSourceLatestGen.get(key) == slowGeneration
+				) {
+					cache.set(key, merged)
+				}
+				if (setResult) setResult({ data: merged, fastFailed: failed })
 			}
 		}
 		;(async () => {
 			try {
-				FXRate.batch()
-				for (const x of slowSources) {
-					if (
-						currencies[x].includes(toCurrency) ||
-						currencies[x].includes(fromCurrency)
-					) {
-						requestSource(x)
+				await runBatch(client, () => {
+					for (const x of slowSources) {
+						if (sourceSupportsPair(x)) {
+							requestSource(x)
+						}
 					}
-				}
-				await FXRate.done()
+				})
+				slowOk = slowSources
+					.filter(sourceSupportsPair)
+					.every((source) => data[source] != undefined)
 			} catch (error) {
 				console.error("Error getting slow source details:", error)
 			} finally {
@@ -368,8 +485,10 @@ export async function getCurrenciesDetails(
 
 	const result = Object.values(data)
 
-	// 请求失败不写缓存，保证下次还能重试
-	if (!failed && result.length > 0) {
+	// 请求失败不写缓存，保证下次还能重试；
+	// 有慢源待后台批处理时也不写快源结果（慢源成功后才统一写缓存，
+	// 避免命中快源-only 数据）——慢源完成前缓存仍保持缺失状态
+	if (!failed && result.length > 0 && slowSources.length == 0) {
 		cache.set(key, result)
 	}
 
@@ -378,7 +497,7 @@ export async function getCurrenciesDetails(
 		throw new Error(failedMessage)
 	}
 
-	if (setResult) setResult(result)
+	if (setResult) setResult({ data: result, fastFailed: failed })
 	return result
 }
 
@@ -405,64 +524,74 @@ export async function getRatesMatrix(
 		amount?: number
 		precision?: number
 		force?: boolean
+		reverse?: boolean
 		// 跳过不请求的源（默认跳过反爬慢源，矩阵视图点击后单独加载）
 		skipSources?: Set<string>
 	} = {}
 ): Promise<RatesMatrix> {
-	const { amount = 100, precision = 4, force = false, skipSources } = options
+	const {
+		amount = 100,
+		precision = 4,
+		force = false,
+		reverse = false,
+		skipSources,
+	} = options
 
-	const key = `${from}-${amount}-p${precision}`
+	const skip = skipSources ?? SLOW_SOURCES
+	// 来源/支持货币与 skip 策略（排序稳定）纳入缓存 key：
+	// 请求范围变化时自动失效，避免命中缺失新源或不同 skip 策略的旧矩阵
+	const skipFingerprint =
+		skip.size > 0 ? Array.from(skip).sort().join("+") : "none"
+	const key = `${from}-${amount}-p${precision}-${reverse ? "reverse" : "forward"}|${sourceSupportFingerprint(currencies)}|skip:${skipFingerprint}`
 	if (!force) {
 		const cached = matrixCache.get(key)
 		if (cached) return cached
 	}
 
-	const skip = skipSources ?? SLOW_SOURCES
+	const client = getFXRateClient()
 
 	const data: RatesMatrix = {}
 	let failed = false
 
 	try {
-		FXRate.batch()
-
-		for (let k in currencies) {
-			if (skip.has(k)) continue
-			const x = k
-			FXRate.listFXRates(
-				x,
-				from,
-				(resp) => {
-					const row: { [currency: string]: RatesMatrixCell } = {}
-					for (const currency in resp) {
-						const item = resp[currency]
-						// 不支持的 source（如卡组织全表 403）经 client transform
-						// 会变成 { status, message } 之类非货币条目，跳过
-						if (
-							typeof item != "object" ||
-							item === null ||
-							!("middle" in item) ||
-							currency == "status" ||
-							currency == "message"
-						) {
-							continue
+		await runBatch(client, () => {
+			for (const k in currencies) {
+				if (skip.has(k)) continue
+				const x = k
+				client.listFXRates(
+					x,
+					from,
+					(resp) => {
+						const row: { [currency: string]: RatesMatrixCell } = {}
+						for (const currency in resp) {
+							const item = resp[currency]
+							// 不支持的 source（如卡组织全表 403）经 client transform
+							// 会变成 { status, message } 之类非货币条目，跳过
+							if (
+								typeof item != "object" ||
+								item === null ||
+								!("middle" in item) ||
+								currency == "status" ||
+								currency == "message"
+							) {
+								continue
+							}
+							row[currency] = {
+								middle: item.middle,
+								cash: item.cash,
+								remit: item.remit,
+								updated: safeUpdated(item.updated),
+							}
 						}
-						row[currency] = {
-							middle: item.middle,
-							cash: item.cash,
-							remit: item.remit,
-							updated: safeUpdated(item.updated),
-						}
-					}
-					data[x] = row
-				},
-				precision,
-				amount,
-				0,
-				false
-			)
-		}
-
-		await FXRate.done()
+						data[x] = row
+					},
+					precision,
+					amount,
+					0,
+					reverse
+				)
+			}
+		})
 	} catch (error) {
 		console.error("Error getting rates matrix:", error)
 		failed = true
@@ -491,52 +620,61 @@ export async function getSourceMatrixRow(
 	options: {
 		amount?: number
 		precision?: number
+		reverse?: boolean
 		// 交叉汇率：开启后无直连的货币对经中间货币折算（与单对视图 bfs 一致）
 		bfs?: boolean
 	} = {}
 ): Promise<{ [currency: string]: RatesMatrixCell }> {
-	const { amount = 100, precision = 4, bfs = false } = options
+	const { amount = 100, precision = 4, reverse = false, bfs = false } = options
+	const client = getFXRateClient()
 
 	const row: { [currency: string]: RatesMatrixCell } = {}
+	let invalidResponses = 0
 	const targets = targetCurrencies.filter((c) =>
 		supportedCurrencies.includes(c)
 	)
 	if (targets.length == 0) return row
 
 	try {
-		FXRate.batch()
-
-		for (const c of targets) {
-			FXRate.getFXRate(
-				source,
-				from,
-				c,
-				(resp) => {
-					if (typeof resp != "object") return
-					const withPath = resp as FXRateWithPath
-					row[c] = {
-						middle: resp.middle,
-						cash: resp.cash,
-						remit: resp.remit,
-						path:
-							withPath.path && withPath.path.length > 0
-								? withPath.path
-								: undefined,
-						alias: withPath.alias,
-					}
-				},
-				"all",
-				precision,
-				amount,
-				0,
-				false,
-				bfs
-			)
-		}
-
-		await FXRate.done()
+		await runBatch(client, () => {
+			for (const c of targets) {
+				client.getFXRate(
+					source,
+					from,
+					c,
+					(resp) => {
+						if (!isUsableFXRateResponse(resp)) {
+							invalidResponses++
+							return
+						}
+						const withPath = resp
+						row[c] = {
+							middle: resp.middle,
+							cash: resp.cash,
+							remit: resp.remit,
+							updated: safeUpdated(resp.updated),
+							path:
+								withPath.path && withPath.path.length > 0
+									? withPath.path
+									: undefined,
+							alias: withPath.alias,
+						}
+					},
+					"all",
+					precision,
+					amount,
+					0,
+					reverse,
+					bfs
+				)
+			}
+		})
 	} catch (error) {
 		console.error(`Error getting matrix row for ${source}:`, error)
+		throw error
+	}
+	if (Object.keys(row).length == 0 && invalidResponses > 0) {
+		throw new Error(`${source} 暂无可用报价，请稍后重试`)
 	}
 
 	return row
