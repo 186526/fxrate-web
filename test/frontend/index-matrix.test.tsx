@@ -7,6 +7,7 @@ import Index from "@/componets/index"
 import {
 	getRatesMatrix,
 	getCurrenciesDetails,
+	getSourceMatrixRow,
 	showCurrencyAllRates,
 } from "@/componets/tools"
 import type { RatesMatrix } from "@/componets/tools"
@@ -27,6 +28,7 @@ vi.mock("@/componets/tools", async (importOriginal) => {
 		...actual,
 		getRatesMatrix: vi.fn(),
 		getCurrenciesDetails: vi.fn(),
+		getSourceMatrixRow: vi.fn(),
 		showCurrencyAllRates: vi.fn(),
 		FXRate: { info: vi.fn() },
 	}
@@ -120,5 +122,53 @@ describe("Index 矩阵请求作废（stale matrix race）", () => {
 
 		expect(await screen.findByText("7.1")).toBeInTheDocument()
 		expect(screen.queryByText("7.9")).not.toBeInTheDocument()
+	}, 10_000)
+})
+
+describe("Index 矩阵手动刷新额外行代际", () => {
+	beforeEach(() => {
+		getRatesMatrixMock.mockReset()
+		vi.mocked(getSourceMatrixRow).mockReset()
+	})
+
+	it("刷新按钮递增 refreshGeneration：已加载的额外行清空并按新代际重新加载", async () => {
+		const user = userEvent.setup()
+		getRatesMatrixMock.mockResolvedValue({
+			bankA: { USD: { middle: 7.1 } },
+		})
+		vi.mocked(getSourceMatrixRow).mockResolvedValue({
+			USD: { middle: 7.2 },
+		})
+
+		render(
+			<ThemeProvider>
+				<Index
+					buildId="build"
+					buildTime="2026-01-01T00:00:00.000Z"
+					version="1.0.0"
+					initialCurrencies={{
+						bankA: ["CNY", "USD"],
+						visa: ["CNY", "USD"],
+					}}
+				/>
+			</ThemeProvider>
+		)
+
+		// 矩阵加载后：visa 慢源显示"点击加载"，点击加载成功
+		const loadBtn = await screen.findByRole("button", { name: "点击加载" })
+		await user.click(loadBtn)
+		expect(await screen.findByText("7.2")).toBeInTheDocument()
+		expect(getSourceMatrixRow).toHaveBeenCalledTimes(1)
+
+		// 手动刷新：matrixExtraRowsGeneration++ 传给 FXMatrixGrid →
+		// 额外行 keyed 快照重置，visa 回到"点击加载"
+		await user.click(screen.getByRole("button", { name: "refresh" }))
+		expect(screen.queryByText("7.2")).not.toBeInTheDocument()
+		const reloadBtn = await screen.findByRole("button", { name: "点击加载" })
+
+		// 新代际下重新加载成功
+		await user.click(reloadBtn)
+		expect(await screen.findByText("7.2")).toBeInTheDocument()
+		expect(getSourceMatrixRow).toHaveBeenCalledTimes(2)
 	}, 10_000)
 })
