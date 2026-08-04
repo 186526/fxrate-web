@@ -10,6 +10,7 @@ import TextField from "@mui/material/TextField"
 import IconButton from "@mui/material/IconButton"
 import Tooltip from "@mui/material/Tooltip"
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz"
+import SwapVertIcon from "@mui/icons-material/SwapVert"
 
 import { code } from "currency-codes-ts"
 import { getAllCountries } from "country-locale-map"
@@ -70,6 +71,10 @@ export default function CurrencyChooser({
 	onSwap,
 	onAmountChange,
 	showTo = true,
+	reverse = false,
+	onReverseChange,
+	fromLabel = "基准货币",
+	amountLabel,
 }: {
 	currencies: string[]
 	from: string
@@ -80,6 +85,11 @@ export default function CurrencyChooser({
 	onSwap: () => void
 	onAmountChange: (v: number) => void
 	showTo?: boolean
+	reverse?: boolean
+	onReverseChange?: () => void
+	fromLabel?: string
+	// 金额输入框标签覆盖（如矩阵反向时说明金额按各列货币计）
+	amountLabel?: string
 }) {
 	const options = React.useMemo(() => {
 		const map = new Map<string, CurrencyOption>()
@@ -126,15 +136,31 @@ export default function CurrencyChooser({
 		}
 	}
 
+	// 矩阵反向（showTo=false）时金额按各列货币计，而非基准货币 from
+	const amountLabelText =
+		amountLabel ??
+		`金额 (${reverse ? (showTo ? from : "各货币") : to})`
+	const unitToggleText = reverse
+		? showTo
+			? `按基准货币 ${from} 计`
+			: "按各货币计"
+		: showTo
+			? `按目标货币 ${to} 计`
+			: `按基准货币 ${from} 计`
+
 	function renderOption(
-		props: React.HTMLAttributes<HTMLLIElement>,
+		props: React.HTMLAttributes<HTMLLIElement> & { key?: React.Key | null },
 		option: CurrencyOption
 	) {
+		// React 19 禁止把含 key 的 props 对象展开进 JSX（会 console.error 警告）：
+		// MUI renderOption 的 props 自带 key，须先解构出来显式传给根元素
+		const { key, ...rest } = props
 		return (
 			<Box
 				component="li"
+				key={key}
 				sx={{ "& > img": { mr: 2, flexShrink: 0 } }}
-				{...props}
+				{...rest}
 			>
 				{option.emoji} {option.name} - {option.currency} ({option.code})
 			</Box>
@@ -187,7 +213,7 @@ export default function CurrencyChooser({
 				}}
 				getOptionLabel={(option) => option?.label ?? ""}
 				renderOption={renderOption}
-				renderInput={renderInput("基准货币")}
+				renderInput={renderInput(fromLabel)}
 				sx={{ flex: "1 1 180px", minWidth: 0 }}
 			></Autocomplete>
 
@@ -239,22 +265,55 @@ export default function CurrencyChooser({
 				></Autocomplete>
 			)}
 
-			<TextField
-				label="金额"
-				type="number"
-				size="small"
-				value={amountText}
-				onChange={(e) => handleAmountChange(e.target.value)}
-				inputProps={{ min: 1, step: 100, style: { textAlign: "right" } }}
+			<Box
 				sx={{
-					width: { xs: "100%", sm: 140 },
+					display: "flex",
+					alignItems: "center",
+					gap: 0.5,
+					width: { xs: "100%", sm: 190 },
 					flexShrink: 0,
 					gridColumn: {
 						xs: showTo ? "1 / -1" : "auto",
 						sm: "auto",
 					},
 				}}
-			/>
+			>
+				<TextField
+					label={amountLabelText}
+					type="number"
+					size="small"
+					value={amountText}
+					onChange={(e) => handleAmountChange(e.target.value)}
+					inputProps={{
+						min: 1,
+						step: 100,
+						style: { textAlign: "right" },
+					}}
+					sx={{ flex: 1, minWidth: 0 }}
+				/>
+				<Tooltip title={`切换金额单位：${unitToggleText}`}>
+					<IconButton
+						aria-label="切换金额单位"
+						size="small"
+						onClick={onReverseChange}
+						sx={{
+							flexShrink: 0,
+							borderRadius: "50%",
+							bgcolor: "brandSoft",
+							color: "primary.main",
+							border: "1px solid",
+							borderColor: "divider",
+							"&:hover, &:active": {
+								bgcolor: "primary.main",
+								color: "primary.contrastText",
+								borderColor: "primary.main",
+							},
+						}}
+					>
+						<SwapVertIcon fontSize="small" />
+					</IconButton>
+				</Tooltip>
+			</Box>
 		</Paper>
 	)
 }
