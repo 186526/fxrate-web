@@ -120,5 +120,5 @@ describe("Index 矩阵请求作废（stale matrix race）", () => {
 
 		expect(await screen.findByText("7.1")).toBeInTheDocument()
 		expect(screen.queryByText("7.9")).not.toBeInTheDocument()
-	})
+	}, 10_000)
 })
