@@ -186,6 +186,55 @@ describe("Index 单对刷新替换陈旧快源行", () => {
 			expect(getCurrenciesDetailsMock.mock.calls.length).toBeGreaterThanOrEqual(2)
 		)
 	})
+
+	it("空成功快照后刷新失败显示内联错误，不显示陈旧数据 Snackbar", async () => {
+		getCurrenciesDetailsMock.mockRejectedValue(new Error("pair refresh failed"))
+
+		render(
+			<ThemeProvider>
+				<Index
+					buildId="build"
+					buildTime="2026-01-01T00:00:00.000Z"
+					version="1.0.0"
+					initialCurrencies={{ bankA: ["CNY", "USD"] }}
+					initialResult={[]}
+				/>
+			</ThemeProvider>
+		)
+
+		expect(await screen.findByText("pair refresh failed")).toBeInTheDocument()
+		expect(
+			screen.queryByText("刷新失败，当前显示的是上次成功获取的数据。")
+		).not.toBeInTheDocument()
+		expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument()
+	})
+
+	it("只有中间价、最终不会渲染为单对报价的快照不触发陈旧数据 Snackbar", async () => {
+		getCurrenciesDetailsMock.mockRejectedValue(new Error("pair refresh failed"))
+
+		render(
+			<ThemeProvider>
+				<Index
+					buildId="build"
+					buildTime="2026-01-01T00:00:00.000Z"
+					version="1.0.0"
+					initialCurrencies={{ bankA: ["CNY", "USD"] }}
+					initialResult={[
+						{
+							name: "bankA",
+							type: { middle: 7.1 },
+							updated: "2026-01-01T00:00:00.000Z",
+						},
+					]}
+				/>
+			</ThemeProvider>
+		)
+
+		expect(await screen.findByText("pair refresh failed")).toBeInTheDocument()
+		expect(
+			screen.queryByText("刷新失败，当前显示的是上次成功获取的数据。")
+		).not.toBeInTheDocument()
+	})
 })
 
 describe("Index decimal amount 契约", () => {

@@ -99,6 +99,27 @@ const matrixViewCacheKey = (
 
 const MATRIX_SLOW_SOURCES = Array.from(SLOW_SOURCES)
 
+const hasPairQuotes = (data: FXListProps[] | null): boolean =>
+	data?.some(
+		(row) =>
+			Boolean(row.type.buy?.cash) ||
+			Boolean(row.type.buy?.remit) ||
+			Boolean(row.type.sell?.cash) ||
+			Boolean(row.type.sell?.remit)
+	) ?? false
+
+const hasMatrixQuotes = (data: RatesMatrix | null): boolean =>
+	data != null &&
+	Object.values(data).some((row) =>
+		Object.values(row).some((cell) =>
+			[cell.middle, cell.cash, cell.remit].some(
+				(value) =>
+					typeof value == "number" ||
+					(typeof value == "string" && value.trim() != "")
+			)
+		)
+	)
+
 // 视图记忆 localStorage keys：pair 记忆（from/to + reverse）与 matrix 记忆（基准/方向）分离，
 // 各自仅在本视图路径写入，pair↔matrix 往返时互不重置；矩阵 URL 的 to 是基准货币，
 // 不得污染 pair 目标货币
@@ -836,8 +857,8 @@ export default function Index({
 	const activeViewError = view == "pair" ? pairError : matrixError
 	const hasVisibleData =
 		view == "pair"
-			? visiblePair != null && visiblePair.length > 0
-			: visibleMatrix != null && Object.keys(visibleMatrix).length > 0
+			? hasPairQuotes(visiblePair)
+			: hasMatrixQuotes(visibleMatrix)
 	const lastUpdated = React.useMemo(() => {
 		if (view == "matrix") {
 			return visibleMatrix == null ? null : matrixFetchedAt
@@ -947,7 +968,8 @@ export default function Index({
 								borderRadius: { xs: "9999px", sm: 0 },
 								fontSize: { xs: "0.8125rem", sm: "0.875rem" },
 								fontWeight: 600,
-								transition: "all 0.2s ease",
+								transition:
+									"background-color 0.2s ease, color 0.2s ease",
 								"&.Mui-selected": {
 									bgcolor: { xs: "brandSoft", sm: "transparent" },
 									color: { xs: "primary.dark", sm: "primary.main" },
@@ -1199,7 +1221,7 @@ export default function Index({
 						<Box sx={{ mt: 2 }}>
 							{view == "pair" ? (
 								<>
-									{pairError && visiblePair == null && (
+									{pairError && !hasPairQuotes(visiblePair) && (
 										<Alert
 											severity="error"
 											action={
@@ -1237,7 +1259,7 @@ export default function Index({
 								</>
 							) : (
 								<>
-									{matrixError && visibleMatrix == null && (
+									{matrixError && !hasMatrixQuotes(visibleMatrix) && (
 										<Alert
 											severity="error"
 											action={

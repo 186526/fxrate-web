@@ -203,4 +203,43 @@ describe("Index 矩阵 stale revalidation 提示", () => {
 		await user.click(screen.getByRole("button", { name: "重试" }))
 		await waitFor(() => expect(getRatesMatrixMock).toHaveBeenCalledTimes(2))
 	})
+
+	it("空成功快照后刷新失败显示内联错误，不显示陈旧数据 Snackbar", async () => {
+		render(
+			<ThemeProvider>
+				<Index
+					buildId="build"
+					buildTime="2026-01-01T00:00:00.000Z"
+					version="1.0.0"
+					initialCurrencies={{ bankA: ["CNY", "USD"] }}
+					initialMatrix={{}}
+				/>
+			</ThemeProvider>
+		)
+
+		expect(await screen.findByText("matrix refresh failed")).toBeInTheDocument()
+		expect(
+			screen.queryByText("刷新失败，当前显示的是上次成功获取的数据。")
+		).not.toBeInTheDocument()
+		expect(screen.getByRole("button", { name: "重试" })).toBeInTheDocument()
+	})
+
+	it("只有空来源行、没有实际报价的快照不触发陈旧数据 Snackbar", async () => {
+		render(
+			<ThemeProvider>
+				<Index
+					buildId="build"
+					buildTime="2026-01-01T00:00:00.000Z"
+					version="1.0.0"
+					initialCurrencies={{ bankA: ["CNY", "USD"] }}
+					initialMatrix={{ bankA: {} }}
+				/>
+			</ThemeProvider>
+		)
+
+		expect(await screen.findByText("matrix refresh failed")).toBeInTheDocument()
+		expect(
+			screen.queryByText("刷新失败，当前显示的是上次成功获取的数据。")
+		).not.toBeInTheDocument()
+	})
 })
