@@ -285,10 +285,10 @@ describe("额外行 keyed 快照 / 失败重试 / 计数一致性", () => {
 		})
 
 		expect(
-			screen.getByRole("button", { name: "最优价 1/1 家" })
+			screen.getByRole("button", { name: "参与高亮 1/1 家" })
 		).toBeInTheDocument()
 		expect(
-			screen.queryByRole("button", { name: "最优价 2/1 家" })
+			screen.queryByRole("button", { name: "参与高亮 2/1 家" })
 		).not.toBeInTheDocument()
 	})
 
@@ -421,5 +421,78 @@ describe("矩阵表格语义", () => {
 		expect(tooltip).toHaveTextContent(/未更新，数据可能不准确/)
 		expect(stale).toHaveAttribute("aria-describedby", tooltip.id)
 		expect(stale).toHaveAccessibleName("数据可能已过期")
+	})
+
+	it("角落格 zIndex 高于 MUI stickyHeader 默认（2），双轴滚动时覆盖表头×首列交叉区", () => {
+		renderGrid()
+
+		const cornerTh = screen.getAllByRole("columnheader")[0] as HTMLElement
+		const headerTh = screen.getAllByRole("columnheader")[1] as HTMLElement
+		const cornerZ = parseInt(window.getComputedStyle(cornerTh).zIndex, 10)
+		const headerZ = parseInt(window.getComputedStyle(headerTh).zIndex, 10)
+		// MUI stickyHeader 使表头格 zIndex=2；角落格必须更高，否则同层时
+		// 靠后的货币表头会盖住角落（fxlistgrid 头部名称格同用 3）
+		expect(headerZ).toBe(2)
+		expect(cornerZ).toBeGreaterThan(headerZ)
+		expect(cornerZ).toBeGreaterThan(2)
+	})
+
+	it("轻量斑马纹：奇数行数据格 surfaceMuted 且 sticky 首列同步，hover 属性保留", async () => {
+		renderGrid({
+			data: {
+				bankA: { USD: { middle: 7.1 } },
+				bankB: { USD: { middle: 7.05 } },
+				bankC: { USD: { middle: 7.2 } },
+				bankD: { USD: { middle: 7.15 } },
+			},
+		})
+
+		// visibleSources 按名称排序：bankA(偶) / bankB(奇) / bankC(偶) / bankD(奇)。
+		// 慢源"点击加载"行无 td 也无 hover prop，先过滤只留数据行。
+		// bankC(7.2) 是 USD 列最优价（高亮格 brandSoft），斑马断言只取其余行
+		const bodyRows = screen
+			.getAllByRole("row")
+			.filter(
+				(r) =>
+					r.querySelector("th[scope='row']") &&
+					r.querySelectorAll("td").length > 0
+			)
+		expect(bodyRows.length).toBeGreaterThanOrEqual(4)
+		const styleOf = (el: HTMLElement) =>
+			window.getComputedStyle(el).backgroundColor
+		const cellOf = (row: HTMLElement) => row.querySelector("td") as HTMLElement
+		// 斑马画在单元格层（非行层，避免透过半透明 brandSoft 高亮格破坏对比度）
+		expect(styleOf(cellOf(bodyRows[1]))).toBe(styleOf(cellOf(bodyRows[3])))
+		expect(styleOf(cellOf(bodyRows[0]))).not.toBe(styleOf(cellOf(bodyRows[1])))
+
+		// sticky 首列同步斑马底色，横向滚动时不露白
+		const zebraStickyTh = bodyRows[1].querySelector(
+			"th[scope='row']"
+		) as HTMLElement
+		expect(styleOf(zebraStickyTh)).toBe(styleOf(cellOf(bodyRows[1])))
+
+		// zebra 不影响 hover 接线（MUI 仍挂 hover 类；CSS :hover 由浏览器处理）
+		for (const row of bodyRows) {
+			expect(row).toHaveClass("MuiTableRow-hover")
+		}
+	})
+
+	it("数值列窄屏宽度规则：nowrap + text-overflow 截断超长值", () => {
+		renderGrid({
+			data: {
+				bankA: {
+					USD: { middle: 12345678.123456 },
+					EUR: { middle: 7.1 },
+				},
+			},
+		})
+
+		const td = screen
+			.getByText("12345678.123456")
+			.closest("td") as HTMLElement
+		const style = window.getComputedStyle(td)
+		expect(style.whiteSpace).toBe("nowrap")
+		expect(style.textOverflow).toBe("ellipsis")
+		expect(style.overflow).toBe("hidden")
 	})
 })

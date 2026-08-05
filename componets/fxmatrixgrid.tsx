@@ -33,6 +33,7 @@ import {
 	isAbortError,
 } from "@/componets/tools"
 import { useBestPriceSources } from "@/componets/bestPriceSources"
+import BestPriceMark from "@/componets/bestPriceMark"
 import { SourceIcon, currencyEmoji } from "@/componets/sourceIcon"
 import { computeStats, StatsTip, StatsTipProvider, StatsTooltip, isStale, StaleIcon, useMounted } from "@/componets/rateStats"
 
@@ -54,6 +55,18 @@ const DEFAULT_COMMON_CURRENCIES = [
 ]
 
 const MATRIX_CURRENCIES_KEY = "fxrate-matrix-currencies"
+
+// 窄屏宽度规则：来源列保证最小宽度（配合首列 sticky 截断长名）；
+// 数值列设 min/max 宽度并截断超长值，避免极端数字在 320px 下撑爆横滚布局。
+// 表头与正文首列单元格共用同一 minWidth，保证 sticky 列宽稳定不跳动。
+const SOURCE_COL_MIN_WIDTH = { xs: 116, sm: 150 } as const
+const NUMERIC_CELL_LAYOUT = {
+	minWidth: { xs: 64, sm: 80 },
+	maxWidth: { xs: 104, sm: 136 },
+	overflow: "hidden",
+	textOverflow: "ellipsis",
+	whiteSpace: "nowrap",
+} as const
 
 function getName(name: string): string {
 	if (nameMapping[name]) {
@@ -715,7 +728,7 @@ function FXMatrixGrid({
 							setBestSourceAnchor(e.currentTarget)
 						}}
 					>
-						最优价{" "}
+						参与高亮{" "}
 						{visibleSources.filter((s) => !excluded.has(s)).length}/
 						{visibleSources.length} 家
 					</Button>
@@ -754,9 +767,13 @@ function FXMatrixGrid({
 								fontSize: { xs: 12, sm: 13 },
 								fontWeight: 500,
 								color: "text.secondary",
+								// 选中项：暗色 primary.dark 于 brandSoft 仅 3.4:1，须换 primary.main（4.8:1）
 								"&.Mui-selected": {
 									bgcolor: "brandSoft",
-									color: "primary.dark",
+									color: (t: { palette: { mode: string } }) =>
+										t.palette.mode == "dark"
+											? "primary.main"
+											: "primary.dark",
 									fontWeight: 700,
 									boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
 								},
@@ -937,7 +954,10 @@ function FXMatrixGrid({
 									bgcolor: "background.paper",
 									borderRight: "1px solid",
 									borderColor: "divider",
-									zIndex: 2,
+									// 角落格需高于 MUI stickyHeader 默认 zIndex(2) 与其后的
+									// 货币表头同层，才能在双轴滚动时盖住表头行与首列的交叉区
+									zIndex: 3,
+									minWidth: SOURCE_COL_MIN_WIDTH,
 									py: { xs: 0.75, sm: 1 },
 									px: { xs: 0.75, sm: 1.5 },
 								}}
@@ -979,10 +999,16 @@ function FXMatrixGrid({
 						</TableRow>
 					</TableHead>
 					<TableBody>
-						{visibleSources.map((s) => {
+						{visibleSources.map((s, idx) => {
 							// 该源各货币最新更新时间：任一 cell 超过 STALE_MS 视为整行可能不准确
 							const rowUpdated = updatedBySource[s]
 							const rowStale = mounted && !!rowUpdated && isStale(rowUpdated)
+							// 轻量斑马纹：奇数行低对比底色。斑马必须画在单元格层而非行层——
+							// 行层底色会透过半透明 brandSoft 高亮格把对比度压到 4.22:1（axe 失败），
+							// 画在单元格层则高亮格仍与 paper 合成（4.57:1 维持现状）。
+							// hover 经 .MuiTableRow-hover:hover 子选择器覆盖为 action.hover，
+							// 与偶数行行级 hover 表现一致
+							const zebra = idx % 2 == 1
 							return (
 								<TableRow key={s} hover>
 								<TableCell
@@ -991,11 +1017,15 @@ function FXMatrixGrid({
 									sx={{
 										position: "sticky",
 										left: 0,
-										bgcolor: "background.paper",
+										// sticky 首列同步斑马底色，横向滚动时不露白
+										bgcolor: zebra
+											? "surfaceMuted"
+											: "background.paper",
 										borderRight: "1px solid",
 										borderColor: "divider",
 										zIndex: 1,
 										whiteSpace: "nowrap",
+										minWidth: SOURCE_COL_MIN_WIDTH,
 										py: { xs: 0.75, sm: 1 },
 										px: { xs: 0.75, sm: 1.5 },
 									}}
@@ -1069,6 +1099,7 @@ function FXMatrixGrid({
 											key={c}
 											align="right"
 											sx={{
+												...NUMERIC_CELL_LAYOUT,
 												fontWeight: highlight ? 700 : "inherit",
 												color: rowStale
 													? "text.disabled"
@@ -1077,7 +1108,20 @@ function FXMatrixGrid({
 														: "inherit",
 												backgroundColor: highlight
 													? "brandSoft"
-													: "inherit",
+													: zebra
+														? "surfaceMuted"
+														: "inherit",
+												// 斑马格行 hover 时转 action.hover（与偶数行行级 hover 一致）
+												...(zebra && !highlight
+													? {
+															"@media (hover: hover)": {
+																".MuiTableRow-hover:hover &": {
+																	backgroundColor:
+																		"action.hover",
+																},
+															},
+													  }
+													: {}),
 												py: { xs: 0.75, sm: 1 },
 												px: { xs: 1, sm: 1.5 },
 												fontSize: { xs: 12, sm: 14 },
@@ -1180,6 +1224,7 @@ function FXMatrixGrid({
 											) : (
 												formatValue(v)
 											)}
+											{highlight && <BestPriceMark />}
 										</TableCell>
 									)
 								})}

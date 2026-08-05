@@ -24,6 +24,7 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew"
 import Link from "@mui/material/Link"
 import { sourceNamesInZH } from "@/lib/fxrate/src/constant"
 import { useBestPriceSources } from "@/componets/bestPriceSources"
+import BestPriceMark from "@/componets/bestPriceMark"
 import { SourceIcon } from "@/componets/sourceIcon"
 import { rssURL, ratesPageURL } from "@/componets/tools"
 import {
@@ -81,6 +82,17 @@ const columns: Column[] = [
 	{ key: "middle", label: "中间价", align: "left", sortable: true },
 	{ key: "updated", label: "更新时间", align: "right" },
 ]
+
+// 窄屏宽度规则：来源列保证最小宽度（配合首列 sticky 截断长名）；
+// 数值列设 min/max 宽度并截断超长值，避免极端数字在 320px 下撑爆横滚布局
+const SOURCE_COL_MIN_WIDTH = { xs: 116, sm: 150 } as const
+const NUMERIC_CELL_LAYOUT = {
+	minWidth: { xs: 64, sm: 80 },
+	maxWidth: { xs: 104, sm: 136 },
+	overflow: "hidden",
+	textOverflow: "ellipsis",
+	whiteSpace: "nowrap",
+} as const
 
 const formatValue = (v: RateValue): string =>
 	typeof v == "number" || typeof v == "string" ? String(v) : "—"
@@ -333,7 +345,7 @@ function FXListGrid({
 					}}
 					sx={{ ml: { xs: 0, sm: "auto" } }}
 				>
-					最优价{" "}
+					参与高亮{" "}
 					{rows.filter((r) => !excluded.has(r.source)).length}/
 					{withDataRows} 家
 				</Button>
@@ -470,6 +482,10 @@ function FXListGrid({
 											col.key == "name" ? "sticky" : "static",
 										left: col.key == "name" ? 0 : "auto",
 										zIndex: col.key == "name" ? 3 : "auto",
+										minWidth:
+											col.key == "name"
+												? SOURCE_COL_MIN_WIDTH
+												: undefined,
 										bgcolor:
 											col.key == "name"
 												? "background.paper"
@@ -514,7 +530,7 @@ function FXListGrid({
 						</TableRow>
 					</TableHead>
 					<TableBody>
-						{sorted.map((row) => {
+						{sorted.map((row, idx) => {
 							const cells: {
 								key: string
 								v: RateValue
@@ -526,6 +542,12 @@ function FXListGrid({
 								{ key: "sellRemit", v: row.sellRemit, target: best.sellRemit },
 								{ key: "middle", v: row.middle },
 							]
+							// 轻量斑马纹：奇数行低对比底色。斑马必须画在单元格层而非行层——
+							// 行层底色会透过半透明 brandSoft 高亮格把对比度压到 4.22:1（axe 失败），
+							// 画在单元格层则高亮格仍与 paper 合成（4.57:1 维持现状）。
+							// hover 经 .MuiTableRow-hover:hover 子选择器覆盖为 action.hover，
+							// 与偶数行行级 hover 表现一致
+							const zebra = idx % 2 == 1
 							return (
 								<TableRow key={row.id} hover>
 									<TableCell
@@ -536,10 +558,14 @@ function FXListGrid({
 											position: "sticky",
 											left: 0,
 											zIndex: 1,
-											bgcolor: "background.paper",
+											// sticky 首列同步斑马底色，横向滚动时不露白
+											bgcolor: zebra
+												? "surfaceMuted"
+												: "background.paper",
 											borderRight: "1px solid",
 											borderColor: "divider",
 											whiteSpace: "nowrap",
+											minWidth: SOURCE_COL_MIN_WIDTH,
 											py: { xs: 0.75, sm: 1 },
 											px: { xs: 0.75, sm: 1.5 },
 										}}
@@ -628,6 +654,7 @@ function FXListGrid({
 											key={c.key}
 											align="left"
 											sx={{
+												...NUMERIC_CELL_LAYOUT,
 												fontWeight:
 													highlight && !row.stale
 														? 700
@@ -640,7 +667,20 @@ function FXListGrid({
 												backgroundColor:
 													highlight && !row.stale
 														? "brandSoft"
-														: "inherit",
+														: zebra
+															? "surfaceMuted"
+															: "inherit",
+												// 斑马格行 hover 时转 action.hover（与偶数行行级 hover 一致）
+												...(zebra && !highlight
+													? {
+															"@media (hover: hover)": {
+																".MuiTableRow-hover:hover &": {
+																	backgroundColor:
+																		"action.hover",
+																},
+															},
+													  }
+													: {}),
 												py: { xs: 0.75, sm: 1 },
 												px: { xs: 1, sm: 1.5 },
 												// 移动端数字略小，多展示一列
@@ -810,10 +850,31 @@ function FXListGrid({
 											) : (
 												formatValue(c.v)
 											)}
+											{highlight && !row.stale && (
+												<BestPriceMark />
+											)}
 										</TableCell>
 									)
 								})}
-									<TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
+									<TableCell
+										align="right"
+										sx={{
+											whiteSpace: "nowrap",
+											backgroundColor: zebra
+												? "surfaceMuted"
+												: "inherit",
+											...(zebra
+												? {
+														"@media (hover: hover)": {
+															".MuiTableRow-hover:hover &": {
+																backgroundColor:
+																	"action.hover",
+															},
+														},
+												  }
+												: {}),
+										}}
+									>
 										<StatsTip
 											content={
 												<Typography variant="caption">
