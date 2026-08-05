@@ -85,7 +85,9 @@ const sunoakiLight = {
 	surface: "#ffffff",
 	surfaceMuted: "#f3f0ea",
 	text: "#172026",
-	muted: "#66727a",
+	// WCAG AA：原 #66727a 于 surfaceMuted/action.hover 仅 4.34:1（表头/toggle 未选中），
+	// 加深到 #5a666e 后各底色 ≥4.5（surfaceMuted 5.19 / action.hover 5.18 / white 5.90）
+	muted: "#5a666e",
 	border: "#e5dfd5",
 	error: "#a53f3f",
 	onError: "#ffffff",

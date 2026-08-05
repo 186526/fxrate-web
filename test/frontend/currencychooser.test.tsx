@@ -92,7 +92,7 @@ describe("CurrencyChooser 金额标签", () => {
 
 	it("矩阵反向（showTo=false, reverse=true）：金额按各列货币计，而非基准货币", () => {
 		renderChooser({ showTo: false, to: "CNY", reverse: true })
-		expect(screen.getByLabelText("金额 (各货币)")).toBeInTheDocument()
+		expect(screen.getByLabelText("每种货币金额")).toBeInTheDocument()
 		expect(screen.queryByLabelText("金额 (CNY)")).not.toBeInTheDocument()
 	})
 

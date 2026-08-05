@@ -947,7 +947,7 @@ export default function Index({
 					<Tabs
 						value={view}
 						onChange={(_, v) => setView(v as View)}
-						sx={{
+						sx={(theme) => ({
 							minHeight: 40,
 							order: { xs: 3, sm: 0 },
 							width: { xs: "100%", sm: "auto" },
@@ -970,13 +970,21 @@ export default function Index({
 								fontWeight: 600,
 								transition:
 									"background-color 0.2s ease, color 0.2s ease",
+								// 移动端选中 Tab：浅色用 primary.dark（于 brandSoft 7.3:1），
+								// 暗色 primary.dark 仅 3.93:1，须换 primary.main（5.62:1）
 								"&.Mui-selected": {
 									bgcolor: { xs: "brandSoft", sm: "transparent" },
-									color: { xs: "primary.dark", sm: "primary.main" },
+									color: {
+										xs:
+											theme.palette.mode == "dark"
+												? "primary.main"
+												: "primary.dark",
+										sm: "primary.main",
+									},
 									fontWeight: 700,
 								},
 							},
-						}}
+						})}
 					>
 						<Tab value="pair" label="单对报价" />
 						<Tab value="matrix" label="全对矩阵" />
@@ -1150,7 +1158,7 @@ export default function Index({
 							</IconButton>
 						</Tooltip>
 						<Tooltip title="刷新">
-							<IconButton aria-label="refresh" size="small" onClick={handleRefresh}>
+							<IconButton aria-label="刷新" size="small" onClick={handleRefresh}>
 								<RefreshIcon fontSize="small" />
 							</IconButton>
 						</Tooltip>
@@ -1168,7 +1176,7 @@ export default function Index({
 						</Tooltip>
 						<Tooltip title={mode == "dark" ? "切换浅色模式" : "切换暗色模式"}>
 							<IconButton
-								aria-label="toggle theme"
+								aria-label="切换主题"
 								size="small"
 								onClick={toggle}
 							>

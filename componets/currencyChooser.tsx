@@ -8,6 +8,7 @@ import Box from "@mui/material/Box"
 import Paper from "@mui/material/Paper"
 import TextField from "@mui/material/TextField"
 import IconButton from "@mui/material/IconButton"
+import ToggleButton from "@mui/material/ToggleButton"
 import Tooltip from "@mui/material/Tooltip"
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz"
 import SwapVertIcon from "@mui/icons-material/SwapVert"
@@ -158,7 +159,7 @@ export default function CurrencyChooser({
 	// 矩阵反向（showTo=false）时金额按各列货币计，而非基准货币 from
 	const amountLabelText =
 		amountLabel ??
-		`金额 (${reverse ? (showTo ? from : "各货币") : to})`
+		(reverse && !showTo ? "每种货币金额" : `金额 (${reverse ? from : to})`)
 	const unitToggleText = reverse
 		? showTo
 			? `按基准货币 ${from} 计`
@@ -166,6 +167,16 @@ export default function CurrencyChooser({
 		: showTo
 			? `按目标货币 ${to} 计`
 			: `按基准货币 ${from} 计`
+	// ToggleButton 用 aria-pressed 表达当前方向；可访问名称描述当前模式与点击后的效果
+	const unitToggleLabel = `切换金额单位：当前${unitToggleText}，点击切换为${
+		!reverse
+			? showTo
+				? `按基准货币 ${from} 计`
+				: "按各货币计"
+			: showTo
+				? `按目标货币 ${to} 计`
+				: `按基准货币 ${from} 计`
+	}`
 
 	function renderOption(
 		props: React.HTMLAttributes<HTMLLIElement> & { key?: React.Key | null },
@@ -245,7 +256,7 @@ export default function CurrencyChooser({
 			{showTo && (
 				<Tooltip title="交换货币对">
 					<IconButton
-						aria-label="exchange"
+						aria-label="交换货币对"
 						size="small"
 						onClick={onSwap}
 						sx={{
@@ -318,10 +329,12 @@ export default function CurrencyChooser({
 					sx={{ flex: 1, minWidth: 0 }}
 				/>
 				<Tooltip title={`切换金额单位：${unitToggleText}`}>
-					<IconButton
-						aria-label="切换金额单位"
+					<ToggleButton
+						value="amountUnit"
 						size="small"
+						selected={reverse}
 						onClick={onReverseChange}
+						aria-label={unitToggleLabel}
 						sx={{
 							flexShrink: 0,
 							width: 40,
@@ -331,7 +344,7 @@ export default function CurrencyChooser({
 							color: "primary.main",
 							border: "1px solid",
 							borderColor: "divider",
-							"&:hover, &:active": {
+							"&.Mui-selected, &:hover": {
 								bgcolor: "primary.main",
 								color: "primary.contrastText",
 								borderColor: "primary.main",
@@ -339,7 +352,7 @@ export default function CurrencyChooser({
 						}}
 					>
 						<SwapVertIcon fontSize="small" />
-					</IconButton>
+					</ToggleButton>
 				</Tooltip>
 			</Box>
 		</Paper>

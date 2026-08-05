@@ -44,8 +44,12 @@ test.describe("matrix-reverse", () => {
 		const navsBefore = navs()
 		const fxListBefore = mock.count("listFXRates")
 
-		// 点击金额单位切换按钮 → 矩阵反向（卖出方向）
-		await page.getByRole("button", { name: "切换金额单位" }).click()
+		// 点击金额单位切换按钮 → 矩阵反向（卖出方向）；按钮名动态描述当前模式与点击效果
+		await page
+			.getByRole("button", {
+				name: "切换金额单位：当前按基准货币 CNY 计，点击切换为按各货币计",
+			})
+			.click()
 
 		// 1) URL 方向：正向 from= → 反向 to=
 		await expect

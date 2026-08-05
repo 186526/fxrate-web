@@ -93,7 +93,7 @@ describe("Index 矩阵请求作废（stale matrix race）", () => {
 		expect(await screen.findByText("7.1")).toBeInTheDocument()
 
 		// 手动刷新：同一 key 的 in-flight 请求（模拟响应较慢）
-		await user.click(screen.getByRole("button", { name: "refresh" }))
+		await user.click(screen.getByRole("button", { name: "刷新" }))
 		await waitForPending(2)
 		const refresh = pending[1]
 
@@ -162,7 +162,7 @@ describe("Index 矩阵手动刷新额外行代际", () => {
 
 		// 手动刷新：matrixExtraRowsGeneration++ 传给 FXMatrixGrid →
 		// 额外行 keyed 快照重置，visa 回到"点击加载"
-		await user.click(screen.getByRole("button", { name: "refresh" }))
+		await user.click(screen.getByRole("button", { name: "刷新" }))
 		expect(screen.queryByText("7.2")).not.toBeInTheDocument()
 		const reloadBtn = await screen.findByRole("button", { name: "点击加载" })
 
