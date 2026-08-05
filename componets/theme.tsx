@@ -211,7 +211,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 							body: {
 								transition: "background-color 0.2s ease",
 							},
-							":where(a, button, [role=\"button\"], [tabindex=\"0\"]):focus-visible": {
+							":where(a, button, input, select, textarea, [role=\"button\"], [tabindex=\"0\"]):focus-visible": {
 								outline: `2px solid ${c.primary} !important`,
 								outlineOffset: "2px !important",
 							},
@@ -329,6 +329,14 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 								textTransform: "none",
 								fontWeight: 600,
 								minHeight: 40,
+								"&.Mui-focusVisible, &:focus-visible": {
+									outline: `2px solid ${c.primary} !important`,
+								},
+								"@media (max-width:599.95px)": {
+									"&.Mui-focusVisible, &:focus-visible": {
+										outlineOffset: "-2px !important",
+									},
+								},
 							},
 						},
 					},

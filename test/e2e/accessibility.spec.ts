@@ -99,63 +99,134 @@ test.describe("accessibility smoke", () => {
 	})
 
 	for (const width of [320, 360]) {
-		test(`${width}px 单对 header/chooser 不产生页面级横向溢出，操作目标与焦点环可用`, async ({
-			page,
-		}, testInfo) => {
-			await page.setViewportSize({ width, height: 720 })
-			mockJsonRpcRoutes(page)
-			const getErrors = collectPageErrors(page)
-			await page.goto("/")
-			await expect(page.getByText("bankA").first()).toBeVisible({
-				timeout: 60_000,
-			})
+		for (const view of ["pair", "matrix"] as const) {
+			test(`${width}px ${view == "pair" ? "单对" : "矩阵"} header/chooser/ISO/Tab 焦点与操作目标可用`, async ({
+				page,
+			}, testInfo) => {
+				await page.setViewportSize({ width, height: 720 })
+				mockJsonRpcRoutes(page)
+				const getErrors = collectPageErrors(page)
+				await page.goto(
+					view == "pair" ? "/" : "/matrix?from=CNY&amount=100&precision=4"
+				)
+				await expect(page.getByText("bankA").first()).toBeVisible({
+					timeout: 60_000,
+				})
 
-			const layout = await page.evaluate(() => {
-				const header = document.querySelector("header")!.getBoundingClientRect()
-				const chooser = document
-					.querySelector("#from-currency")!
-					.closest(".MuiPaper-root")!
-					.getBoundingClientRect()
-				return {
-					documentWidth: document.documentElement.scrollWidth,
-					viewportWidth: document.documentElement.clientWidth,
-					headerLeft: header.left,
-					headerRight: header.right,
-					chooserLeft: chooser.left,
-					chooserRight: chooser.right,
+				const layout = await page.evaluate((currentView) => {
+					const header = document.querySelector("header")!.getBoundingClientRect()
+					const chooser = document
+						.querySelector("#from-currency")!
+						.closest(".MuiPaper-root")!
+						.getBoundingClientRect()
+					const inputIds =
+						currentView == "pair"
+							? ["from-currency", "to-currency"]
+							: ["from-currency"]
+					const isoInputs = inputIds.map((id) => {
+						const input = document.querySelector<HTMLInputElement>(`#${id}`)!
+						const target = input.closest(".MuiInputBase-root")!.getBoundingClientRect()
+						return {
+							value: input.value,
+							textFits: input.scrollWidth <= input.clientWidth,
+							left: target.left,
+							right: target.right,
+							width: target.width,
+							height: target.height,
+						}
+					})
+					return {
+						documentWidth: document.documentElement.scrollWidth,
+						viewportWidth: document.documentElement.clientWidth,
+						headerLeft: header.left,
+						headerRight: header.right,
+						chooserLeft: chooser.left,
+						chooserRight: chooser.right,
+						isoInputs,
+					}
+				}, view)
+				expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth)
+				expect(layout.headerLeft).toBeGreaterThanOrEqual(0)
+				expect(layout.headerRight).toBeLessThanOrEqual(width)
+				expect(layout.chooserLeft).toBeGreaterThanOrEqual(0)
+				expect(layout.chooserRight).toBeLessThanOrEqual(width)
+				for (const input of layout.isoInputs) {
+					expect(input.value).toMatch(/\b[A-Z]{3}\b/)
+					expect(input.textFits).toBe(true)
+					expect(input.left).toBeGreaterThanOrEqual(layout.chooserLeft)
+					expect(input.right).toBeLessThanOrEqual(layout.chooserRight)
+					expect(input.width).toBeGreaterThanOrEqual(40)
+					expect(input.height).toBeGreaterThanOrEqual(40)
 				}
-			})
-			expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth)
-			expect(layout.headerLeft).toBeGreaterThanOrEqual(0)
-			expect(layout.headerRight).toBeLessThanOrEqual(width)
-			expect(layout.chooserLeft).toBeGreaterThanOrEqual(0)
-			expect(layout.chooserRight).toBeLessThanOrEqual(width)
 
-			for (const name of ["小数精度", "交叉汇率", "refresh", "API 文档", "toggle theme"]) {
-				const box = await page.getByRole("button", { name }).boundingBox()
-				expect(box?.width).toBeGreaterThanOrEqual(40)
-				expect(box?.height).toBeGreaterThanOrEqual(40)
-			}
-
-			await page.getByRole("button", { name: "refresh" }).click()
-			await page.keyboard.press("Tab")
-			await expect(page.getByRole("button", { name: "API 文档" })).toBeFocused()
-			const focusStyle = await page.evaluate(() => {
-				const active = document.activeElement as HTMLElement
-				const style = getComputedStyle(active)
-				return {
-					outlineStyle: style.outlineStyle,
-					outlineWidth: parseFloat(style.outlineWidth),
+				for (const name of ["小数精度", "交叉汇率", "refresh", "API 文档", "toggle theme"]) {
+					const box = await page.getByRole("button", { name }).boundingBox()
+					expect(box?.width).toBeGreaterThanOrEqual(40)
+					expect(box?.height).toBeGreaterThanOrEqual(40)
 				}
-			})
-			expect(focusStyle.outlineStyle).not.toBe("none")
-			expect(focusStyle.outlineWidth).toBeGreaterThanOrEqual(2)
+				for (const name of ["单对报价", "全对矩阵"]) {
+					const box = await page.getByRole("tab", { name }).boundingBox()
+					expect(box?.width).toBeGreaterThanOrEqual(40)
+					expect(box?.height).toBeGreaterThanOrEqual(40)
+				}
 
-			await testInfo.attach(`pair-${width}px`, {
-				body: await page.screenshot({ fullPage: true }),
-				contentType: "image/png",
+				// 键盘 Tab 进入选中 Tab（MUI Tabs roving tabindex：仅选中 Tab 在 tab 序中）。
+				// 此时顺序导航起点在文档开头，header 内首个可聚焦元素即选中 Tab。
+				// 不能用程序化 .focus()：按钮类元素只有键盘导航才匹配 :focus-visible，
+				// 且聚焦金额输入会把顺序导航起点挪到其后，导致 Tab 落不到 Tab 上。
+				const activeTab = page.getByRole("tab", {
+					name: view == "pair" ? "单对报价" : "全对矩阵",
+				})
+				await page.keyboard.press("Tab")
+				await expect(activeTab).toBeFocused()
+				const tabFocus = await activeTab.evaluate((tab) => {
+					const tabRect = tab.getBoundingClientRect()
+					const scroller = tab.closest(".MuiTabs-scroller")!.getBoundingClientRect()
+					const style = getComputedStyle(tab)
+					return {
+						outlineStyle: style.outlineStyle,
+						outlineWidth: parseFloat(style.outlineWidth),
+						outlineOffset: parseFloat(style.outlineOffset),
+						tabLeft: tabRect.left,
+						tabRight: tabRect.right,
+						tabTop: tabRect.top,
+						tabBottom: tabRect.bottom,
+						scrollerLeft: scroller.left,
+						scrollerRight: scroller.right,
+						scrollerTop: scroller.top,
+						scrollerBottom: scroller.bottom,
+					}
+				})
+				expect(tabFocus.outlineStyle).not.toBe("none")
+				expect(tabFocus.outlineWidth).toBeGreaterThanOrEqual(2)
+				expect(tabFocus.outlineOffset).toBeLessThanOrEqual(-2)
+				expect(tabFocus.tabLeft).toBeGreaterThanOrEqual(tabFocus.scrollerLeft)
+				expect(tabFocus.tabRight).toBeLessThanOrEqual(tabFocus.scrollerRight)
+				expect(tabFocus.tabTop).toBeGreaterThanOrEqual(tabFocus.scrollerTop)
+				expect(tabFocus.tabBottom).toBeLessThanOrEqual(tabFocus.scrollerBottom)
+
+				// 原生金额输入：获得焦点后必须命中品牌 focus-visible 环
+				// （Chrome 对文本/数字输入无论聚焦方式都匹配 :focus-visible，可用程序化 focus）。
+				const amountInput = page.getByRole("spinbutton")
+				await amountInput.focus()
+				const inputFocusStyle = await page.evaluate(() => {
+					const active = document.activeElement as HTMLElement
+					const style = getComputedStyle(active)
+					return {
+						outlineStyle: style.outlineStyle,
+						outlineWidth: parseFloat(style.outlineWidth),
+					}
+				})
+				expect(inputFocusStyle.outlineStyle).not.toBe("none")
+				expect(inputFocusStyle.outlineWidth).toBeGreaterThanOrEqual(2)
+
+
+				await testInfo.attach(`${view}-${width}px`, {
+					body: await page.screenshot({ fullPage: true }),
+					contentType: "image/png",
+				})
+				expect(getErrors()).toEqual([])
 			})
-			expect(getErrors()).toEqual([])
-		})
+		}
 	}
 })

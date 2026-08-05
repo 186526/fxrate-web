@@ -61,6 +61,25 @@ countries.push({
 const mapCurrency2Country = (currency: string) =>
 	countries.find((x) => x.currency === currency)
 
+const currencyAutocompleteSx = {
+	flex: "1 1 180px",
+	minWidth: 0,
+	"@media (max-width:599.95px)": {
+		"& .MuiAutocomplete-inputRoot": {
+			paddingLeft: "4px !important",
+			paddingRight: "40px !important",
+		},
+		"& .MuiAutocomplete-input": {
+			minWidth: "0 !important",
+			paddingLeft: "4px !important",
+			paddingRight: "0 !important",
+		},
+		"& .MuiAutocomplete-endAdornment": {
+			right: 0,
+		},
+	},
+}
+
 export default function CurrencyChooser({
 	currencies,
 	from,
@@ -220,7 +239,7 @@ export default function CurrencyChooser({
 				getOptionLabel={(option) => option?.label ?? ""}
 				renderOption={renderOption}
 				renderInput={renderInput(fromLabel)}
-				sx={{ flex: "1 1 180px", minWidth: 0 }}
+				sx={currencyAutocompleteSx}
 			></Autocomplete>
 
 			{showTo && (
@@ -268,7 +287,7 @@ export default function CurrencyChooser({
 					getOptionLabel={(option) => option?.label ?? ""}
 					renderOption={renderOption}
 					renderInput={renderInput("目标货币")}
-					sx={{ flex: "1 1 180px", minWidth: 0 }}
+					sx={currencyAutocompleteSx}
 				></Autocomplete>
 			)}
 
