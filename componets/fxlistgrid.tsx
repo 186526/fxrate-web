@@ -575,28 +575,30 @@ function FXListGrid({
 											>
 												{row.name}
 											</Box>
-											{ratesPageURL(row.source) && (
-												<Tooltip title="查看官方外汇牌价页">
-													<Link
-														href={ratesPageURL(row.source)!}
-														target="_blank"
-														rel="noopener noreferrer"
-														aria-label={`${row.name} 官方外汇牌价`}
-														onClick={(e) => e.stopPropagation()}
-														sx={{
-															display: "inline-flex",
-															alignItems: "center",
-															justifyContent: "center",
-															verticalAlign: "middle",
-															lineHeight: 0,
-															color: "text.secondary",
-															opacity: 0.75,
-															flexShrink: 0,
-															"&:hover": {
-																opacity: 1,
-																color: "primary.main",
-															},
-														}}
+										{ratesPageURL(row.source) && (
+											<Tooltip title="查看官方外汇牌价页">
+												<Link
+													href={ratesPageURL(row.source)!}
+													target="_blank"
+													rel="noopener noreferrer"
+													aria-label={`${row.name} 官方外汇牌价`}
+													onClick={(e) => e.stopPropagation()}
+													sx={{
+														display: "inline-flex",
+														alignItems: "center",
+														justifyContent: "center",
+														minWidth: 24,
+														minHeight: 24,
+														verticalAlign: "middle",
+														lineHeight: 0,
+														color: "text.secondary",
+														opacity: 0.75,
+														flexShrink: 0,
+														"&:hover": {
+															opacity: 1,
+															color: "primary.main",
+														},
+													}}
 													>
 														<OpenInNewIcon sx={{ fontSize: 12 }} />
 													</Link>

@@ -211,6 +211,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 							body: {
 								transition: "background-color 0.2s ease",
 							},
+							":where(a, button, [role=\"button\"], [tabindex=\"0\"]):focus-visible": {
+								outline: `2px solid ${c.primary} !important`,
+								outlineOffset: "2px !important",
+							},
 							"@media (prefers-reduced-motion: reduce)": {
 								"*": {
 									animationDuration: "0.01ms !important",
@@ -239,6 +243,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 								textTransform: "none",
 								borderRadius: "9999px",
 								fontWeight: 600,
+								minHeight: 40,
 							},
 							// 站点 primary 按钮：品牌深色底，hover 变主色
 							contained: ({ theme }) => ({
@@ -274,6 +279,22 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 							},
 						],
 					},
+					MuiIconButton: {
+						styleOverrides: {
+							root: {
+								minWidth: 40,
+								minHeight: 40,
+							},
+						},
+					},
+					MuiCheckbox: {
+						styleOverrides: {
+							root: {
+								minWidth: 40,
+								minHeight: 40,
+							},
+						},
+					},
 					MuiTableCell: {
 						styleOverrides: {
 							root: ({ theme }) => ({
@@ -307,6 +328,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 							root: {
 								textTransform: "none",
 								fontWeight: 600,
+								minHeight: 40,
 							},
 						},
 					},
@@ -357,6 +379,14 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 							root: {
 								textTransform: "none",
 								fontWeight: 600,
+								minHeight: 40,
+							},
+						},
+					},
+					MuiMenuItem: {
+						styleOverrides: {
+							root: {
+								minHeight: 40,
 							},
 						},
 					},

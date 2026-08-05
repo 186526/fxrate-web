@@ -188,21 +188,27 @@ export default function CurrencyChooser({
 			sx={{
 				display: { xs: "grid", sm: "flex" },
 				gridTemplateColumns: {
-					xs: showTo ? "1fr auto 1fr" : "1fr",
+					xs: showTo
+						? "minmax(0, 1fr) auto minmax(0, 1fr)"
+						: "minmax(0, 1fr)",
 					sm: "none",
 				},
 				alignItems: "center",
 				flexWrap: "wrap",
-				gap: { xs: 1.25, sm: 1.5 },
+				gap: { xs: 0.75, sm: 1.5 },
 				p: { xs: 1.25, sm: 1.5 },
+				width: "100%",
+				minWidth: 0,
+				boxSizing: "border-box",
 				borderRadius: 1,
 				border: "1px solid",
 				borderColor: "divider",
 			}}
 		>
-			<Autocomplete
+			<Autocomplete<CurrencyOption, false, false, false>
 				id="from-currency"
 				options={options}
+				clearIcon={null}
 				autoHighlight
 				clearOnBlur
 				selectOnFocus
@@ -225,8 +231,8 @@ export default function CurrencyChooser({
 						onClick={onSwap}
 						sx={{
 							flexShrink: 0,
-							width: { xs: 40, sm: 36 },
-							height: { xs: 40, sm: 36 },
+							width: 40,
+							height: 40,
 							borderRadius: "50%",
 							bgcolor: "brandSoft",
 							color: "primary.main",
@@ -247,9 +253,10 @@ export default function CurrencyChooser({
 			)}
 
 			{showTo && (
-				<Autocomplete
+				<Autocomplete<CurrencyOption, false, false, false>
 					id="to-currency"
 					options={options}
+					clearIcon={null}
 					autoHighlight
 					clearOnBlur
 					selectOnFocus
@@ -298,6 +305,8 @@ export default function CurrencyChooser({
 						onClick={onReverseChange}
 						sx={{
 							flexShrink: 0,
+							width: 40,
+							height: 40,
 							borderRadius: "50%",
 							bgcolor: "brandSoft",
 							color: "primary.main",

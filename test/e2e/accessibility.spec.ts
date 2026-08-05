@@ -97,4 +97,65 @@ test.describe("accessibility smoke", () => {
 		await assertNoSeriousViolations(page)
 		expect(getErrors()).toEqual([])
 	})
+
+	for (const width of [320, 360]) {
+		test(`${width}px 单对 header/chooser 不产生页面级横向溢出，操作目标与焦点环可用`, async ({
+			page,
+		}, testInfo) => {
+			await page.setViewportSize({ width, height: 720 })
+			mockJsonRpcRoutes(page)
+			const getErrors = collectPageErrors(page)
+			await page.goto("/")
+			await expect(page.getByText("bankA").first()).toBeVisible({
+				timeout: 60_000,
+			})
+
+			const layout = await page.evaluate(() => {
+				const header = document.querySelector("header")!.getBoundingClientRect()
+				const chooser = document
+					.querySelector("#from-currency")!
+					.closest(".MuiPaper-root")!
+					.getBoundingClientRect()
+				return {
+					documentWidth: document.documentElement.scrollWidth,
+					viewportWidth: document.documentElement.clientWidth,
+					headerLeft: header.left,
+					headerRight: header.right,
+					chooserLeft: chooser.left,
+					chooserRight: chooser.right,
+				}
+			})
+			expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth)
+			expect(layout.headerLeft).toBeGreaterThanOrEqual(0)
+			expect(layout.headerRight).toBeLessThanOrEqual(width)
+			expect(layout.chooserLeft).toBeGreaterThanOrEqual(0)
+			expect(layout.chooserRight).toBeLessThanOrEqual(width)
+
+			for (const name of ["小数精度", "交叉汇率", "refresh", "API 文档", "toggle theme"]) {
+				const box = await page.getByRole("button", { name }).boundingBox()
+				expect(box?.width).toBeGreaterThanOrEqual(40)
+				expect(box?.height).toBeGreaterThanOrEqual(40)
+			}
+
+			await page.getByRole("button", { name: "refresh" }).click()
+			await page.keyboard.press("Tab")
+			await expect(page.getByRole("button", { name: "API 文档" })).toBeFocused()
+			const focusStyle = await page.evaluate(() => {
+				const active = document.activeElement as HTMLElement
+				const style = getComputedStyle(active)
+				return {
+					outlineStyle: style.outlineStyle,
+					outlineWidth: parseFloat(style.outlineWidth),
+				}
+			})
+			expect(focusStyle.outlineStyle).not.toBe("none")
+			expect(focusStyle.outlineWidth).toBeGreaterThanOrEqual(2)
+
+			await testInfo.attach(`pair-${width}px`, {
+				body: await page.screenshot({ fullPage: true }),
+				contentType: "image/png",
+			})
+			expect(getErrors()).toEqual([])
+		})
+	}
 })
