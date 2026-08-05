@@ -644,6 +644,21 @@ function FXMatrixGrid({
 			),
 		[sortedSources, currencies, displayData, priceType]
 	)
+	const updatedBySource = React.useMemo(() => {
+		const updated: { [source: string]: Date | null } = {}
+		for (const source of visibleSources) {
+			updated[source] = Object.values(displayData[source] ?? {}).reduce<Date | null>(
+				(latest, cell) => {
+					if (!cell?.updated) return latest
+					return !latest || cell.updated.getTime() > latest.getTime()
+						? cell.updated
+						: latest
+				},
+				null
+			)
+		}
+		return updated
+	}, [visibleSources, displayData])
 
 	const resetCurrencies = () => {
 		try {
@@ -966,13 +981,7 @@ function FXMatrixGrid({
 					<TableBody>
 						{visibleSources.map((s) => {
 							// 该源各货币最新更新时间：任一 cell 超过 STALE_MS 视为整行可能不准确
-							const rowUpdated = Object.values(displayData[s] ?? {}).reduce<Date | null>(
-								(acc, cell) => {
-									if (!cell?.updated) return acc
-									return !acc || cell.updated.getTime() > acc.getTime() ? cell.updated : acc
-								},
-								null
-							)
+							const rowUpdated = updatedBySource[s]
 							const rowStale = mounted && !!rowUpdated && isStale(rowUpdated)
 							return (
 								<TableRow key={s} hover>
@@ -1014,34 +1023,36 @@ function FXMatrixGrid({
 										>
 											{getName(s)}
 										</Box>
-										{ratesPageURL(s) && (
-											<Tooltip title="查看官方外汇牌价页">
-												<Link
-													href={ratesPageURL(s)!}
-													target="_blank"
-													rel="noopener noreferrer"
-													aria-label={`${getName(s)} 官方外汇牌价`}
-													onClick={(e) => e.stopPropagation()}
-													sx={{
-														display: "inline-flex",
-														alignItems: "center",
-														justifyContent: "center",
-														verticalAlign: "middle",
-														lineHeight: 0,
-														color: "text.secondary",
-														opacity: 0.75,
-														flexShrink: 0,
-														"&:hover": {
-															opacity: 1,
-															color: "primary.main",
-														},
-													}}
-												>
-													<OpenInNewIcon sx={{ fontSize: 12 }} />
-												</Link>
-											</Tooltip>
-										)}
-										{rowStale && (
+									{ratesPageURL(s) && (
+										<Tooltip title="查看官方外汇牌价页">
+											<Link
+												href={ratesPageURL(s)!}
+												target="_blank"
+												rel="noopener noreferrer"
+												aria-label={`${getName(s)} 官方外汇牌价`}
+												onClick={(e) => e.stopPropagation()}
+												sx={{
+													display: "inline-flex",
+													alignItems: "center",
+													justifyContent: "center",
+													minWidth: 24,
+													minHeight: 24,
+													verticalAlign: "middle",
+													lineHeight: 0,
+													color: "text.secondary",
+													opacity: 0.75,
+													flexShrink: 0,
+													"&:hover": {
+														opacity: 1,
+														color: "primary.main",
+													},
+												}}
+											>
+												<OpenInNewIcon sx={{ fontSize: 12 }} />
+											</Link>
+										</Tooltip>
+									)}
+									{rowStale && (
 											<StaleIcon
 												title={`该来源 ${rowUpdated!.toLocaleString("zh-CN")} 未更新，数据可能不准确`}
 											/>
