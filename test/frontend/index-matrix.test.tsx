@@ -172,3 +172,35 @@ describe("Index 矩阵手动刷新额外行代际", () => {
 		expect(getSourceMatrixRow).toHaveBeenCalledTimes(2)
 	}, 10_000)
 })
+
+describe("Index 矩阵 stale revalidation 提示", () => {
+	beforeEach(() => {
+		getRatesMatrixMock.mockReset()
+		getRatesMatrixMock.mockRejectedValue(new Error("matrix refresh failed"))
+	})
+
+	it("刷新失败保留上次成功矩阵，以不占布局的提示明确陈旧语义并允许重试", async () => {
+		const user = userEvent.setup()
+		render(
+			<ThemeProvider>
+				<Index
+					buildId="build"
+					buildTime="2026-01-01T00:00:00.000Z"
+					version="1.0.0"
+					initialCurrencies={{ bankA: ["CNY", "USD"] }}
+					initialMatrix={{ bankA: { USD: { middle: 7.1 } } }}
+				/>
+			</ThemeProvider>
+		)
+
+		expect(screen.getByText("7.1")).toBeInTheDocument()
+		expect(
+			await screen.findByText("刷新失败，当前显示的是上次成功获取的数据。")
+		).toBeInTheDocument()
+		expect(screen.getByText("matrix refresh failed")).toBeInTheDocument()
+		expect(screen.getByText("7.1")).toBeInTheDocument()
+
+		await user.click(screen.getByRole("button", { name: "重试" }))
+		await waitFor(() => expect(getRatesMatrixMock).toHaveBeenCalledTimes(2))
+	})
+})

@@ -13,6 +13,7 @@ import Alert from "@mui/material/Alert"
 import Button from "@mui/material/Button"
 import Skeleton from "@mui/material/Skeleton"
 import LinearProgress from "@mui/material/LinearProgress"
+import Snackbar from "@mui/material/Snackbar"
 import RefreshIcon from "@mui/icons-material/Refresh"
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz"
 import TuneIcon from "@mui/icons-material/Tune"
@@ -95,6 +96,8 @@ const matrixViewCacheKey = (
 	reverse: boolean
 ): string =>
 	`${base}-${amount}-p${precision}-${reverse ? "reverse" : "forward"}`
+
+const MATRIX_SLOW_SOURCES = Array.from(SLOW_SOURCES)
 
 // 视图记忆 localStorage keys：pair 记忆（from/to + reverse）与 matrix 记忆（基准/方向）分离，
 // 各自仅在本视图路径写入，pair↔matrix 往返时互不重置；矩阵 URL 的 to 是基准货币，
@@ -830,6 +833,11 @@ export default function Index({
 	const visibleMatrixLoading =
 		matrixLoading ||
 		(view == "matrix" && matrix != null && visibleMatrix == null)
+	const activeViewError = view == "pair" ? pairError : matrixError
+	const hasVisibleData =
+		view == "pair"
+			? visiblePair != null && visiblePair.length > 0
+			: visibleMatrix != null && Object.keys(visibleMatrix).length > 0
 	const lastUpdated = React.useMemo(() => {
 		if (view == "matrix") {
 			return visibleMatrix == null ? null : matrixFetchedAt
@@ -900,15 +908,17 @@ export default function Index({
 						py: { xs: 0.375, sm: 1 },
 						display: "flex",
 						alignItems: "center",
-						gap: { xs: 0.25, sm: 2 },
+						gap: { xs: 0.125, sm: 2 },
 						flexWrap: "wrap",
+						width: "100%",
+						minWidth: 0,
 					}}
 				>
 					<Box sx={{ display: "flex", alignItems: "center", mr: { xs: 0.25, sm: 0 } }}>
 						<Typography
 							variant="h6"
 							component="h1"
-							sx={{ fontWeight: 700, letterSpacing: "-0.01em" }}
+							sx={{ fontWeight: 700, fontSize: { xs: 18, sm: 20 }, letterSpacing: 0 }}
 						>
 							FXRate
 						</Typography>
@@ -917,7 +927,7 @@ export default function Index({
 						value={view}
 						onChange={(_, v) => setView(v as View)}
 						sx={{
-							minHeight: { xs: 32, sm: 40 },
+							minHeight: 40,
 							order: { xs: 3, sm: 0 },
 							width: { xs: "100%", sm: "auto" },
 							mt: { xs: 0.25, sm: 0 },
@@ -930,7 +940,7 @@ export default function Index({
 								display: { xs: "none", sm: "block" },
 							},
 							"& .MuiTab-root": {
-								minHeight: { xs: 32, sm: 40 },
+								minHeight: 40,
 								py: { xs: 0.25, sm: 0 },
 								px: { xs: 1.5, sm: 2 },
 								flex: { xs: 1, sm: 0 },
@@ -996,7 +1006,7 @@ export default function Index({
 						<MenuItem value="default">恢复默认</MenuItem>
 					</TextField>
 					{/* 移动端：精度用图标按钮 + 弹层（替代被隐藏的 select） */}
-					<Box sx={{ display: { xs: "block", sm: "none" } }}>
+					<Box sx={{ display: { xs: "block", sm: "none" }, flexShrink: 0 }}>
 						<Tooltip title="小数精度">
 							<IconButton
 								aria-label="小数精度"
@@ -1189,7 +1199,7 @@ export default function Index({
 						<Box sx={{ mt: 2 }}>
 							{view == "pair" ? (
 								<>
-									{pairError && (
+									{pairError && visiblePair == null && (
 										<Alert
 											severity="error"
 											action={
@@ -1227,7 +1237,7 @@ export default function Index({
 								</>
 							) : (
 								<>
-									{matrixError && (
+									{matrixError && visibleMatrix == null && (
 										<Alert
 											severity="error"
 											action={
@@ -1255,7 +1265,7 @@ export default function Index({
 										from={matrixBase}
 											amount={amount}
 											precision={precision}
-											slowSources={Array.from(SLOW_SOURCES)}
+											slowSources={MATRIX_SLOW_SOURCES}
 											sourceCurrencies={currencies ?? undefined}
 											crossRates={crossRates}
 										reverse={matrixReverse}
@@ -1270,6 +1280,38 @@ export default function Index({
 					</>
 				)}
 			</Box>
+			<Snackbar
+				open={Boolean(activeViewError && hasVisibleData)}
+				anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+				sx={{
+					bottom: { xs: 16, sm: 24 },
+					maxWidth: { xs: "calc(100% - 16px)", sm: 640 },
+				}}
+			>
+				<Alert
+					severity="warning"
+					variant="filled"
+					action={
+						<Button
+							color="inherit"
+							size="small"
+							onClick={() =>
+								view == "pair" ? fetchPair(true) : fetchMatrix(true)
+							}
+						>
+							重试
+						</Button>
+					}
+					sx={{ width: "100%", alignItems: "center" }}
+				>
+					<Typography component="span" variant="body2" sx={{ fontWeight: 700 }}>
+						刷新失败，当前显示的是上次成功获取的数据。
+					</Typography>{" "}
+					<Typography component="span" variant="body2">
+						{activeViewError}
+					</Typography>
+				</Alert>
+			</Snackbar>
 
 			<Footer
 				buildId={buildId}

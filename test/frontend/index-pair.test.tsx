@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { ThemeProvider } from "@/componets/theme"
 import Index from "@/componets/index"
 import {
@@ -111,6 +112,7 @@ describe("Index 单对刷新替换陈旧快源行", () => {
 	})
 
 	it("快源批量失败后 Visa 单独回调保留既有快源行与错误提示", async () => {
+		const user = userEvent.setup()
 		getCurrenciesDetailsMock.mockReset()
 		getCurrenciesDetailsMock.mockImplementation(
 			async (_currencies, _to, _from, setResult) => {
@@ -166,6 +168,9 @@ describe("Index 单对刷新替换陈旧快源行", () => {
 		// visa 单独回调到达后：既有快源行 bankA/bankB 仍保留，错误不被慢源回调清除
 		await waitFor(
 			() => {
+				expect(
+					screen.getByText("刷新失败，当前显示的是上次成功获取的数据。")
+				).toBeInTheDocument()
 				expect(screen.getByText("Visa (visa)")).toBeInTheDocument()
 				expect(screen.getByText("bankA")).toBeInTheDocument()
 				expect(screen.getByText("bankB")).toBeInTheDocument()
@@ -174,6 +179,11 @@ describe("Index 单对刷新替换陈旧快源行", () => {
 				).toBeInTheDocument()
 			},
 			{ timeout: 3000 }
+		)
+
+		await user.click(screen.getByRole("button", { name: "重试" }))
+		await waitFor(() =>
+			expect(getCurrenciesDetailsMock.mock.calls.length).toBeGreaterThanOrEqual(2)
 		)
 	})
 })
