@@ -11,7 +11,6 @@ import IconButton from "@mui/material/IconButton"
 import Tooltip from "@mui/material/Tooltip"
 import Alert from "@mui/material/Alert"
 import Button from "@mui/material/Button"
-import Skeleton from "@mui/material/Skeleton"
 import LinearProgress from "@mui/material/LinearProgress"
 import Snackbar from "@mui/material/Snackbar"
 import RefreshIcon from "@mui/icons-material/Refresh"
@@ -20,6 +19,7 @@ import TuneIcon from "@mui/icons-material/Tune"
 import DarkModeIcon from "@mui/icons-material/DarkMode"
 import LightModeIcon from "@mui/icons-material/LightMode"
 import MenuBookIcon from "@mui/icons-material/MenuBook"
+import MoreVertIcon from "@mui/icons-material/MoreVert"
 import MenuItem from "@mui/material/MenuItem"
 import Menu from "@mui/material/Menu"
 import TextField from "@mui/material/TextField"
@@ -39,6 +39,7 @@ import {
 	withTimeout,
 	isAbortError,
 } from "./tools"
+import { ListTableSkeleton, MatrixTableSkeleton } from "./tableSkeleton"
 import { useThemeMode } from "./theme"
 import { infoResponse } from "@/lib/fxrate/src/client"
 
@@ -340,6 +341,9 @@ export default function Index({
 	const [crossHydrated, setCrossHydrated] = React.useState(false)
 	// 移动端精度弹层锚点
 	const [precisionAnchor, setPrecisionAnchor] =
+		React.useState<HTMLElement | null>(null)
+	// xs 溢出菜单锚点：五个 header 操作收纳进「更多」，窄屏下保持 header 干净
+	const [overflowAnchor, setOverflowAnchor] =
 		React.useState<HTMLElement | null>(null)
 
 	React.useEffect(() => {
@@ -1035,158 +1039,202 @@ export default function Index({
 						<MenuItem value={6}>6 位</MenuItem>
 						<MenuItem value="default">恢复默认</MenuItem>
 					</TextField>
-					{/* 移动端：精度用图标按钮 + 弹层（替代被隐藏的 select） */}
-					<Box sx={{ display: { xs: "block", sm: "none" }, flexShrink: 0 }}>
-						<Tooltip title="小数精度">
+					{/* xs 精度子菜单：由溢出菜单的「小数精度」打开（锚定在更多按钮） */}
+					<Menu
+						anchorEl={precisionAnchor}
+						open={Boolean(precisionAnchor)}
+						onClose={() => setPrecisionAnchor(null)}
+					>
+						<MenuItem
+							selected={precision == -1}
+							onClick={() => {
+								setPrecision(-1)
+								setPrecisionAnchor(null)
+							}}
+						>
+							原样
+						</MenuItem>
+						<MenuItem
+							selected={precision == 0}
+							onClick={() => {
+								setPrecision(0)
+								setPrecisionAnchor(null)
+							}}
+						>
+							0 位
+						</MenuItem>
+						<MenuItem
+							selected={precision == 2}
+							onClick={() => {
+								setPrecision(2)
+								setPrecisionAnchor(null)
+							}}
+						>
+							2 位
+						</MenuItem>
+						<MenuItem
+							selected={precision == 4}
+							onClick={() => {
+								setPrecision(4)
+								setPrecisionAnchor(null)
+							}}
+						>
+							4 位
+						</MenuItem>
+						<MenuItem
+							selected={precision == 6}
+							onClick={() => {
+								setPrecision(6)
+								setPrecisionAnchor(null)
+							}}
+						>
+							6 位
+						</MenuItem>
+						<MenuItem
+							onClick={() => {
+								try {
+									localStorage.removeItem(PRECISION_KEY)
+								} catch {
+									// localStorage 不可用时忽略
+								}
+								setPrecision(4)
+								setPrecisionAnchor(null)
+							}}
+						>
+							恢复默认
+						</MenuItem>
+					</Menu>
+					<Tooltip
+						title={
+							crossRates
+								? "交叉汇率已开启：无直连报价时经中间货币折算（可能有累积误差），行内可悬停查看过桥路径"
+								: "开启交叉汇率：无直连报价时经中间货币折算（如 CNY→CNH 经 HKD）"
+						}
+					>
+						<Button
+							size="small"
+							variant={crossRates ? "tonal" : "outlined"}
+							color="inherit"
+							startIcon={<SwapHorizIcon fontSize="small" />}
+							onClick={() => setCrossRates((v) => !v)}
+							sx={{
+								display: { xs: "none", sm: "inline-flex" },
+								color: crossRates
+									? "primary.main"
+									: "inherit",
+								whiteSpace: "nowrap",
+							}}
+						>
+							交叉汇率
+						</Button>
+					</Tooltip>
+					<Tooltip title="刷新">
+						<IconButton
+							aria-label="刷新"
+							size="small"
+							onClick={handleRefresh}
+							sx={{ display: { xs: "none", sm: "inline-flex" } }}
+						>
+							<RefreshIcon fontSize="small" />
+						</IconButton>
+					</Tooltip>
+					<Tooltip title="API 文档">
+						<IconButton
+							aria-label="API 文档"
+							size="small"
+							onClick={() => {
+								cancelPendingUrlWrite()
+								router.push("/api-docs")
+							}}
+							sx={{ display: { xs: "none", sm: "inline-flex" } }}
+						>
+							<MenuBookIcon fontSize="small" />
+						</IconButton>
+					</Tooltip>
+					<Tooltip title={mode == "dark" ? "切换浅色模式" : "切换暗色模式"}>
+						<IconButton
+							aria-label="切换主题"
+							size="small"
+							onClick={toggle}
+							sx={{ display: { xs: "none", sm: "inline-flex" } }}
+						>
+							{mode == "dark" ? (
+								<LightModeIcon fontSize="small" />
+							) : (
+								<DarkModeIcon fontSize="small" />
+							)}
+						</IconButton>
+					</Tooltip>
+					{/* xs 溢出菜单触发器：其余 header 操作收进「更多」，窄屏下保持 header 干净 */}
+					<Box sx={{ display: { xs: "inline-flex", sm: "none" }, flexShrink: 0 }}>
+						<Tooltip title="更多操作">
 							<IconButton
-								aria-label="小数精度"
+								aria-label="更多"
 								size="small"
-								onClick={(e) => setPrecisionAnchor(e.currentTarget)}
+								onClick={(e) => setOverflowAnchor(e.currentTarget)}
 							>
-								<TuneIcon fontSize="small" />
+								<MoreVertIcon fontSize="small" />
 							</IconButton>
 						</Tooltip>
-						<Menu
-							anchorEl={precisionAnchor}
-							open={Boolean(precisionAnchor)}
-							onClose={() => setPrecisionAnchor(null)}
-						>
-							<MenuItem
-								selected={precision == -1}
-								onClick={() => {
-									setPrecision(-1)
-									setPrecisionAnchor(null)
-								}}
-							>
-								原样
-							</MenuItem>
-							<MenuItem
-								selected={precision == 0}
-								onClick={() => {
-									setPrecision(0)
-									setPrecisionAnchor(null)
-								}}
-							>
-								0 位
-							</MenuItem>
-							<MenuItem
-								selected={precision == 2}
-								onClick={() => {
-									setPrecision(2)
-									setPrecisionAnchor(null)
-								}}
-							>
-								2 位
-							</MenuItem>
-							<MenuItem
-								selected={precision == 4}
-								onClick={() => {
-									setPrecision(4)
-									setPrecisionAnchor(null)
-								}}
-							>
-								4 位
-							</MenuItem>
-							<MenuItem
-								selected={precision == 6}
-								onClick={() => {
-									setPrecision(6)
-									setPrecisionAnchor(null)
-								}}
-							>
-								6 位
-							</MenuItem>
-							<MenuItem
-								onClick={() => {
-									try {
-										localStorage.removeItem(PRECISION_KEY)
-									} catch {
-										// localStorage 不可用时忽略
-									}
-									setPrecision(4)
-									setPrecisionAnchor(null)
-								}}
-							>
-								恢复默认
-							</MenuItem>
-						</Menu>
 					</Box>
-						<Tooltip
-							title={
-								crossRates
-									? "交叉汇率已开启：无直连报价时经中间货币折算（可能有累积误差），行内可悬停查看过桥路径"
-									: "开启交叉汇率：无直连报价时经中间货币折算（如 CNY→CNH 经 HKD）"
-							}
+					<Menu
+						anchorEl={overflowAnchor}
+						open={Boolean(overflowAnchor)}
+						onClose={() => setOverflowAnchor(null)}
+					>
+						<MenuItem
+							aria-haspopup="menu"
+							aria-expanded={Boolean(precisionAnchor)}
+							onClick={() => {
+								setPrecisionAnchor(overflowAnchor)
+								setOverflowAnchor(null)
+							}}
 						>
-							<Button
-								size="small"
-								variant={crossRates ? "tonal" : "outlined"}
-								color="inherit"
-								startIcon={<SwapHorizIcon fontSize="small" />}
-								onClick={() => setCrossRates((v) => !v)}
-								sx={{
-									display: { xs: "none", sm: "inline-flex" },
-									color: crossRates
-										? "primary.main"
-										: "inherit",
-									whiteSpace: "nowrap",
-								}}
-							>
-								交叉汇率
-							</Button>
-						</Tooltip>
-						{/* 移动端：交叉汇率 icon 按钮 */}
-						<Tooltip
-							title={
-								crossRates
-									? "交叉汇率已开启"
-									: "开启交叉汇率"
-							}
+							<TuneIcon fontSize="small" sx={{ mr: 1 }} />
+							小数精度
+						</MenuItem>
+						<MenuItem
+							selected={crossRates}
+							onClick={() => {
+								setCrossRates((v) => !v)
+								setOverflowAnchor(null)
+							}}
 						>
-							<IconButton
-								aria-label="交叉汇率"
-								size="small"
-								onClick={() => setCrossRates((v) => !v)}
-								sx={{
-									display: { xs: "inline-flex", sm: "none" },
-									color: crossRates
-										? "primary.main"
-										: "inherit",
-								}}
-							>
-								<SwapHorizIcon fontSize="small" />
-							</IconButton>
-						</Tooltip>
-						<Tooltip title="刷新">
-							<IconButton aria-label="刷新" size="small" onClick={handleRefresh}>
-								<RefreshIcon fontSize="small" />
-							</IconButton>
-						</Tooltip>
-						<Tooltip title="API 文档">
-							<IconButton
-								aria-label="API 文档"
-								size="small"
-								onClick={() => {
-									cancelPendingUrlWrite()
-									router.push("/api-docs")
-								}}
-							>
-								<MenuBookIcon fontSize="small" />
-							</IconButton>
-						</Tooltip>
-						<Tooltip title={mode == "dark" ? "切换浅色模式" : "切换暗色模式"}>
-							<IconButton
-								aria-label="切换主题"
-								size="small"
-								onClick={toggle}
-							>
-								{mode == "dark" ? (
-									<LightModeIcon fontSize="small" />
-								) : (
-									<DarkModeIcon fontSize="small" />
-								)}
-							</IconButton>
-						</Tooltip>
+							<SwapHorizIcon fontSize="small" sx={{ mr: 1 }} />
+							交叉汇率
+						</MenuItem>
+						<MenuItem
+							onClick={() => {
+								handleRefresh()
+								setOverflowAnchor(null)
+							}}
+						>
+							<RefreshIcon fontSize="small" sx={{ mr: 1 }} />
+							刷新
+						</MenuItem>
+						<MenuItem
+							onClick={() => {
+								cancelPendingUrlWrite()
+								router.push("/api-docs")
+							}}
+						>
+							<MenuBookIcon fontSize="small" sx={{ mr: 1 }} />
+							API 文档
+						</MenuItem>
+						<MenuItem
+							onClick={() => {
+								toggle()
+								setOverflowAnchor(null)
+							}}
+						>
+							{mode == "dark" ? (
+								<LightModeIcon fontSize="small" sx={{ mr: 1 }} />
+							) : (
+								<DarkModeIcon fontSize="small" sx={{ mr: 1 }} />
+							)}
+							切换主题
+						</MenuItem>
+					</Menu>
 					</Box>
 				</Box>
 
@@ -1250,7 +1298,7 @@ export default function Index({
 										<LinearProgress sx={{ mb: 1 }} />
 									)}
 									{visiblePairLoading && visiblePair == null ? (
-										<Skeleton variant="rounded" height={280} />
+										<ListTableSkeleton />
 									) : visiblePair && visiblePair.length > 0 ? (
 										<FXListGrid
 											props={visiblePair}
@@ -1288,7 +1336,7 @@ export default function Index({
 										<LinearProgress sx={{ mb: 1 }} />
 									)}
 									{visibleMatrixLoading && visibleMatrix == null ? (
-										<Skeleton variant="rounded" height={280} />
+										<MatrixTableSkeleton />
 									) : visibleMatrix && Object.keys(visibleMatrix).length > 0 ? (
 									<FXMatrixGrid
 										data={visibleMatrix}

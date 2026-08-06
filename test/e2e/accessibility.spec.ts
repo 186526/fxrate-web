@@ -152,11 +152,24 @@ test.describe("accessibility smoke", () => {
 					expect(input.height).toBeGreaterThanOrEqual(40)
 				}
 
-				for (const name of ["小数精度", "交叉汇率", "刷新", "API 文档", "切换主题", "切换金额单位"]) {
-					const box = await page.getByRole("button", { name }).boundingBox()
-					expect(box?.width).toBeGreaterThanOrEqual(40)
-					expect(box?.height).toBeGreaterThanOrEqual(40)
+				// xs 下五个 header 操作收进「更多」溢出菜单：触发按钮可见且 ≥40px，
+				// 五个操作按钮本身 display:none（不进 a11y 树）；「切换金额单位」仍在
+				// 选择器内可见。focus 检查需在打开菜单之前进行（菜单会捕获焦点）。
+				const moreBtn = page.getByRole("button", { name: "更多", exact: true })
+				await expect(moreBtn).toBeVisible()
+				const moreBox = await moreBtn.boundingBox()
+				expect(moreBox?.width).toBeGreaterThanOrEqual(40)
+				expect(moreBox?.height).toBeGreaterThanOrEqual(40)
+				for (const name of ["小数精度", "交叉汇率", "刷新", "API 文档", "切换主题"]) {
+					await expect(
+						page.getByRole("button", { name, exact: true })
+					).toHaveCount(0)
 				}
+				const unitBox = await page
+					.getByRole("button", { name: "切换金额单位" })
+					.boundingBox()
+				expect(unitBox?.width).toBeGreaterThanOrEqual(40)
+				expect(unitBox?.height).toBeGreaterThanOrEqual(40)
 				for (const name of ["单对报价", "全对矩阵"]) {
 					const box = await page.getByRole("tab", { name }).boundingBox()
 					expect(box?.width).toBeGreaterThanOrEqual(40)
@@ -213,6 +226,24 @@ test.describe("accessibility smoke", () => {
 				expect(inputFocusStyle.outlineStyle).not.toBe("none")
 				expect(inputFocusStyle.outlineWidth).toBeGreaterThanOrEqual(2)
 
+				// 打开溢出菜单：五个操作以 menuitem 呈现，保持 ≥40px 目标与键盘可达。
+				// MUI Menu 用 Grow 动画进入（~225ms），动画期间 boundingBox 是缩放中的
+				// 瞬态值（高度约 40*0.6），先 poll 到高度稳定再测量
+				await moreBtn.click()
+				for (const name of ["小数精度", "交叉汇率", "刷新", "API 文档", "切换主题"]) {
+					const item = page.getByRole("menuitem", { name, exact: true })
+					await expect(item).toBeVisible()
+					// boundingBox 是异步的：poll 回调必须 await，否则 .height 取在
+					// Promise 上恒为 undefined（→0），predicate 永不通过
+					await expect
+						.poll(async () => (await item.boundingBox())?.height ?? 0)
+						.toBeGreaterThanOrEqual(40)
+					const box = await item.boundingBox()
+					expect(box?.width).toBeGreaterThanOrEqual(40)
+					expect(box?.height).toBeGreaterThanOrEqual(40)
+				}
+				await page.keyboard.press("Escape")
+				await expect(moreBtn).toBeVisible()
 
 				await testInfo.attach(`${view}-${width}px`, {
 					body: await page.screenshot({ fullPage: true }),

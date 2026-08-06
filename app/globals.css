@@ -32,3 +32,13 @@ html[data-theme="light"] body {
 .MuiTableContainer-root {
 	-webkit-overflow-scrolling: touch;
 }
+
+/* Phase 4B 任务 13：sticky header 在 hydration 主题校正（浅色→暗色）时平滑过渡，
+   避免硬切（body/Paper 已有过渡，header 是 Box 无主题 styleOverride）。
+   注意：这里只做过渡，不预先反转背景/文字——组件内文字（logo/tabs/按钮/输入框）
+   全部使用 SSR 浅色 palette 的具体颜色，单独改背景会让深色文字落在深色表面上
+   在 flash 窗口内不可读；完整暗色 palette 预渲染因 getServerSnapshot hydration
+   契约与 alpha()/backdrop 具体色值依赖而推迟，见 AGENTS.md「主题」一节 */
+header {
+	transition: background-color 0.2s ease;
+}
