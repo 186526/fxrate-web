@@ -15,22 +15,24 @@ function collectPageErrors(page: Page) {
 	return () => errors
 }
 
-// 薄壳架构（app/*.tsx 不做 SSR 数据拉取）下，所有汇率数据都由浏览器客户端经
-// page.route 拦截的 /api/fxrate 拉取，因此浏览器层计数即是完整、确定的数据路径：
-// - 首屏 pair：showCurrencyAllRates（instanceInfo + 4×listCurrencies = 2 批量）+
-//   挂载期后端版本 instanceInfo（1 批量）+ 主批量（3 快源 ×2 方向 = 6 getFXRate）+
-//   visa 慢源后台（2 getFXRate）= 5 条批量、8 个 getFXRate、0 个 listFXRates。
-// - 切矩阵：路径变化触发 Index 重挂载（mount effect 再拉一次后端版本 info = +1 批量）
-//   + getRatesMatrix 矩阵批量（1 条 listFXRates）= +2 批量。
-// - 切回 pair：重挂载 info（+1 批量），pair 数据命中浏览器 tools LRU 零新增。
-// mock server 端计数应恒为 0：SSR 侧（含 webServer 就绪探测与 RSC 导航）不再发任何
-// JSON-RPC 数据请求。
+// 默认视图 SSR 预取架构下，/ 首屏数据由 page.tsx 服务端拉取并随 RSC 下发
+// （initialCurrencies/initialResult/initialBackendVersion props），浏览器 hydration
+// 不再重复拉货币列表/版本——因此浏览器层契约：
+// - 首屏 pair（initial 命中后 300ms SWR 刷新）：主批量（3 快源 ×2 方向 = 6 getFXRate）+
+//   visa 慢源后台（2 getFXRate）= 2 条批量、8 个 getFXRate、0 个 instanceInfo/listCurrencies
+//   （浏览器从不拉货币列表，证明 SSR 已提供）。
+// - 切矩阵：/matrix 是纯客户端薄壳（无 SSR），重挂载时浏览器 currenciesCache 冷
+//   （首屏被 SSR 跳过故从未填充），dev StrictMode 双挂载下 showCurrencyAllRates
+//   两次都在写缓存前启动 → 2×（instanceInfo + 4×listCurrencies）+ 串行 info() + 矩阵批量
+//   = +6 批量（StrictMode 双挂载为 dev-only 行为，生产单挂载为 +4）。
+// - 切回 pair：RSC 重渲染 page.tsx 命中服务端 SWR 缓存再次下发 initial props，
+//   浏览器 tools LRU 命中 → 数据零新增。
 test.describe("request-count", () => {
 	test.beforeEach(async () => {
 		await fetch(`${MOCK}/__reset`)
 	})
 
-	test("薄壳：首屏 pair 单一浏览器数据路径；切矩阵 +1 矩阵数据；切回 pair 数据零新增；SSR 零数据请求", async ({
+	test("SSR 首屏：浏览器 hydration 零货币列表/版本请求；切矩阵 +6；切回 pair 数据零新增", async ({
 		page,
 	}) => {
 		const mock = mockJsonRpcRoutes(page)
@@ -39,39 +41,41 @@ test.describe("request-count", () => {
 		await page.goto("/")
 		await expect(page.getByText("bankA").first()).toBeVisible({ timeout: 60_000 })
 
-		// 浏览器层初始加载：5 条批量（instanceInfo×2 + listCurrencies + 主批量 + visa 后台）
+		// 浏览器层初始加载：2 条批量（主批量 + visa 后台 = 8 个 getFXRate），
+		// 且 instanceInfo/listCurrencies 恒为 0 —— SSR 已随 RSC 提供，浏览器不重复拉
 		await expect
 			.poll(() => mock.count("getFXRate"), { timeout: 15_000 })
 			.toBeGreaterThan(0)
 		await page.waitForTimeout(1500)
-		expect(mock.batches()).toBe(5)
-		expect(mock.count("instanceInfo")).toBe(2)
-		expect(mock.count("listCurrencies")).toBe(4)
+		expect(mock.batches()).toBe(2)
+		expect(mock.count("instanceInfo")).toBe(0)
+		expect(mock.count("listCurrencies")).toBe(0)
 		expect(mock.count("getFXRate")).toBe(8)
 		expect(mock.count("listFXRates")).toBe(0)
 
-		// 切矩阵：重挂载 info +1、矩阵数据 +1 条 listFXRates 批量
+		// 切矩阵：薄壳重挂载（无 initial props）→ dev StrictMode 双挂载
+		// 货币列表（2×2 批量）+ 版本（1）+ 矩阵（1）= +6 批量
 		await page.getByRole("tab", { name: "全对矩阵" }).click()
 		await expect(page.getByText(/以 CNY 为基准/)).toBeVisible({ timeout: 30_000 })
 		await expect
 			.poll(() => mock.count("listFXRates"), { timeout: 20_000 })
 			.toBeGreaterThan(0)
 		await page.waitForTimeout(1500)
-		expect(mock.batches()).toBe(7)
+		expect(mock.batches()).toBe(8)
+		expect(mock.count("instanceInfo")).toBe(3)
+		expect(mock.count("listCurrencies")).toBe(8)
 		expect(mock.count("listFXRates")).toBe(3)
 
-		// 切回单对：pair 数据命中浏览器 tools LRU → getFXRate/listFXRates 零新增，
-		// 仅重挂载 info +1
+		// 切回单对：服务端 SWR 缓存命中再次下发 initial props + 浏览器 LRU 命中
+		// → getFXRate/listFXRates/instanceInfo/listCurrencies 全部零新增
 		await page.getByRole("tab", { name: "单对报价" }).click()
 		await expect(page.getByText("bankA").first()).toBeVisible({ timeout: 30_000 })
 		await page.waitForTimeout(1500)
 		expect(mock.count("getFXRate")).toBe(8)
 		expect(mock.count("listFXRates")).toBe(3)
+		expect(mock.count("instanceInfo")).toBe(3)
+		expect(mock.count("listCurrencies")).toBe(8)
 		expect(mock.batches()).toBe(8)
-
-		// mock server：薄壳 SSR 零 JSON-RPC 数据请求（读就绪探测与 RSC 均不再打后端数据接口）
-		const total = await mockCounters()
-		expect(total.batches).toBe(0)
 
 		expect(getErrors()).toEqual([])
 	})

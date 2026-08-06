@@ -1,4 +1,5 @@
 import Index from "@/componets/index"
+import { prefetchDefaultView } from "@/componets/ssr-prefetch"
 
 import packageJson from "../package.json"
 import buildId from "next-build-id"
@@ -7,12 +8,20 @@ import { fileURLToPath } from "node:url"
 
 import { Suspense } from "react"
 
-// 薄壳：不做任何服务端数据拉取（所有汇率数据由客户端 Index 经 JSON-RPC 拉取），
-// 只提供 buildId/buildTime/version 元数据 props；URL 状态由客户端 useSearchParams 恢复
-export default async function Home() {
+// 默认视图（/ 且参数为默认）做 SSR 预取，首屏直接带数据、客户端不再白屏等请求；
+// 非默认参数保持纯客户端（历史卡顿根因 = 每次 URL 变化都触发整轮服务端重拉，
+// 因此 URL 参数变化绝不触发服务端数据请求）。预取失败降级为薄壳，行为同旧版。
+export default async function Home({
+	searchParams,
+}: {
+	searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
 	// Turbopack 下 __dirname 不可靠，用 import.meta.url 推导（next-build-id 需要真实目录）
 	const dir = dirname(fileURLToPath(import.meta.url))
 	const build = await buildId({ dir, describe: true })
+
+	const params = await searchParams
+	const initial = await prefetchDefaultView(params)
 
 	return (
 		<main style={{ width: "100%" }}>
@@ -21,6 +30,9 @@ export default async function Home() {
 					buildId={build}
 					buildTime={process.env.FXBUILD_TIME ?? ""}
 					version={packageJson.version}
+					initialCurrencies={initial.initialCurrencies}
+					initialResult={initial.initialResult}
+					initialBackendVersion={initial.initialBackendVersion}
 				/>
 			</Suspense>
 		</main>
