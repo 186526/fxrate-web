@@ -421,3 +421,27 @@ describe("getRatesMatrix / getSourceMatrixRow", () => {
 		])
 	})
 })
+
+	it("超过后端批量上限时按 ≤45 源分块（避免整批 -32000 拒绝）", async () => {
+		const currencies: { [source: string]: string[] } = {}
+		for (let i = 0; i < 50; i += 1) {
+			currencies[`bank${String(i).padStart(2, "0")}`] = ["CNY", "USD"]
+		}
+		const stats = createBatchMock({ getFXRate: okRate })
+
+		const result = await getCurrenciesDetails(
+			currencies,
+			"CNY",
+			"USD",
+			undefined,
+			{ amount: 100, precision: 4 }
+		)
+
+		// 50 源 × 2 方向 = 100 条；45 源/批 → 2 批（90 + 10），每批不超 90
+		expect(stats.batches).toBe(2)
+		expect(stats.methods.getFXRate).toBe(100)
+		for (const body of stats.bodies) {
+			expect(body.length).toBeLessThanOrEqual(90)
+		}
+		expect(result.length).toBe(50)
+	})

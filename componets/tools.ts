@@ -481,14 +481,19 @@ export async function getCurrenciesDetails(
 	}
 
 	try {
-		await runBatch(client, () => {
-			for (const x of fastSources) {
-				if (sourceSupportsPair(x)) {
+		// 后端 JSON-RPC 批量上限 100 条；每源排 2 条 getFXRate（双向），57 源即 114 条
+		// 超限被整批拒绝（-32000）。按 45 源/批分块（90 条 < 100），顺序执行——
+		// data 共享累积，慢源仍单独后台请求。
+		const requestedFastSources = fastSources.filter(sourceSupportsPair)
+		const BATCH_CHUNK = 45
+		for (let i = 0; i < requestedFastSources.length; i += BATCH_CHUNK) {
+			const chunk = requestedFastSources.slice(i, i + BATCH_CHUNK)
+			await runBatch(client, () => {
+				for (const x of chunk) {
 					requestSource(x)
 				}
-			}
-		}, signal)
-		const requestedFastSources = fastSources.filter(sourceSupportsPair)
+			}, signal)
+		}
 		if (
 			requestedFastSources.length > 0 &&
 			!requestedFastSources.some((source) => data[source] != undefined)
