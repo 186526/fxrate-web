@@ -31,6 +31,7 @@ export const buildCspHeader = (nonce: string): string =>
 		"object-src 'none'",
 		"base-uri 'self'",
 		"form-action 'self'",
+		"frame-ancestors 'none'",
 	].join("; ");
 
 export function proxy(request: NextRequest) {
@@ -46,8 +47,9 @@ export function proxy(request: NextRequest) {
 
 	const response = NextResponse.next({ request: { headers: requestHeaders } });
 
-	// 响应头：构建标识 + nonce + production CSP（浏览器执行用）。
-	response.headers.set("x-fx-release", process.env.FXBUILD_TIME ?? "dev");
+	// 响应头：构建标识/时间 + nonce + production CSP（浏览器执行用）。
+	response.headers.set("x-fx-release", process.env.FXBUILD_ID ?? "dev");
+	response.headers.set("x-fx-build-time", process.env.FXBUILD_TIME ?? "dev");
 	response.headers.set("x-nonce", nonce);
 	if (csp) response.headers.set("Content-Security-Policy", csp);
 	return response;

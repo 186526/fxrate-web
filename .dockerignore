@@ -30,6 +30,9 @@ lib/fxrate/node_modules
 .DS_Store
 *.pem
 
+# VCS（构建元数据由 build args 注入，镜像构建与运行均不需要仓库历史）
+.git
+
 # debug
 npm-debug.log*
 yarn-debug.log*

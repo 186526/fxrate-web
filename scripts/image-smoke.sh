@@ -18,7 +18,8 @@ set -euo pipefail
 #   --exact --image TAG   Tier-1：smoke 已加载的精确发布镜像。
 #   （无 flags，默认）    Tier-2 contract：docker 构建后端 + 契约前端镜像并跑全链路检查。
 #   --local               Tier-2 local（无 Docker）：node dist 起后端 + next dev 起前端。
-# 用法：bash scripts/image-smoke.sh [--exact --image TAG] [--local] [--require-ready]
+# 用法：bash scripts/image-smoke.sh [--exact --image TAG] [--expected-proxy URL]
+#       [--local] [--require-ready]
 #       [--backend-port N] [--web-port N] [--wait-ready SECONDS] [--keep]
 
 MODE=contract
@@ -33,12 +34,14 @@ REQUIRE_READY=no
 WAIT_READY=300
 KEEP=0
 WORKDIR=""
+EXPECTED_PROXY="https://fxrate.sunoaki.net/v1/jsonrpc"
 
 usage() {
     cat <<'EOF'
 Usage: bash scripts/image-smoke.sh [options]
 
   --exact --image TAG   Tier-1: smoke an already-loaded exact release image (boot + /).
+  --expected-proxy URL  Expected build-time proxy reported by /api/backend-meta.
   --local               Tier-2 local: spawn backend (node dist) + frontend (next dev).
   --backend-port N      Backend port. Default 18081.
   --web-port N          Frontend port. Default 13000.
@@ -54,6 +57,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --exact) MODE=exact; shift ;;
         --image) WEB_IMAGE="$2"; shift 2 ;;
+        --expected-proxy) EXPECTED_PROXY="$2"; shift 2 ;;
         --local) MODE=local; shift ;;
         --backend-port) BACKEND_PORT="$2"; shift 2 ;;
         --web-port) WEB_PORT="$2"; shift 2 ;;
@@ -189,9 +193,34 @@ check_web() {
     local base="$1"
 
     local html
-    html=$(curl --fail --silent --show-error --max-time 30 "$base/") || fail "frontend / curl failed"
+    curl --fail --silent --show-error --max-time 30 \
+        --dump-header "$WORKDIR/web.headers" --output "$WORKDIR/web.html" "$base/" \
+        || fail "frontend / curl failed"
+    html=$(cat "$WORKDIR/web.html")
     grep -q '<title>FXRate-web</title>' <<<"$html" || fail "frontend / missing <title>FXRate-web</title>"
+    grep -qi '^x-content-type-options: nosniff' "$WORKDIR/web.headers" || fail "frontend / missing nosniff header"
+    grep -qi '^x-frame-options: DENY' "$WORKDIR/web.headers" || fail "frontend / missing frame denial header"
+    grep -qi '^referrer-policy: strict-origin-when-cross-origin' "$WORKDIR/web.headers" || fail "frontend / missing referrer policy"
+    grep -qi '^permissions-policy: camera=(), geolocation=(), microphone=()' "$WORKDIR/web.headers" || fail "frontend / missing permissions policy"
+    grep -qi '^x-fx-release: .' "$WORKDIR/web.headers" || fail "frontend / missing release header"
+    grep -qi '^x-fx-build-time: .' "$WORKDIR/web.headers" || fail "frontend / missing build-time header"
     pass "frontend / HTTP 200 with <title>FXRate-web</title>"
+}
+
+check_backend_meta() {
+    local base="$1" expected_rpc="$2"
+    local meta_body rpc_url rest_base expected_rest
+    meta_body=$(curl --fail --silent --show-error --max-time 30 "$base/api/backend-meta") \
+        || fail "/api/backend-meta curl failed"
+    rpc_url=$(json_get "$meta_body" rpcUrl) || fail "/api/backend-meta rpcUrl missing: $meta_body"
+    rest_base=$(json_get "$meta_body" restBase) || fail "/api/backend-meta restBase missing: $meta_body"
+    expected_rest=${expected_rpc%/}
+    expected_rest=${expected_rest%/v1/jsonrpc}
+    [[ "$rpc_url" == "$expected_rpc" ]] \
+        || fail "/api/backend-meta rpcUrl='$rpc_url' (expected '$expected_rpc')"
+    [[ "$rest_base" == "$expected_rest" ]] \
+        || fail "/api/backend-meta restBase='$rest_base' (expected '$expected_rest')"
+    pass "/api/backend-meta matches build-time proxy $expected_rpc"
 }
 
 # 仅 Tier-2：浏览器代理 /api/fxrate 必须回指 FXRATE_PROXY 指定的后端——直接证明
@@ -229,6 +258,7 @@ if [[ "$MODE" == "exact" ]]; then
         --publish "127.0.0.1:${WEB_PORT}:3000" "$WEB_IMAGE"
     wait_http "http://127.0.0.1:${WEB_PORT}/" 60
     check_web "http://127.0.0.1:${WEB_PORT}"
+    check_backend_meta "http://127.0.0.1:${WEB_PORT}" "$EXPECTED_PROXY"
 elif [[ "$MODE" == "contract" ]]; then
     docker network create "$NETWORK" 2>/dev/null || true
     docker rm -f "$BACKEND_CONTAINER" "$WEB_CONTAINER" >/dev/null 2>&1 || true
@@ -248,6 +278,8 @@ elif [[ "$MODE" == "contract" ]]; then
     wait_http "http://127.0.0.1:${BACKEND_PORT}/info" 60
 
     docker build --build-arg "FXRATE_PROXY=http://${BACKEND_CONTAINER}:8080/v1/jsonrpc" \
+        --build-arg "FXBUILD_ID=contract-smoke" \
+        --build-arg "FXBUILD_TIME=1970-01-01T00:00:00Z" \
         --tag "$WEB_IMAGE" .
     docker run --detach --name "$WEB_CONTAINER" --network "$NETWORK" \
         --publish "127.0.0.1:${WEB_PORT}:3000" \
@@ -257,6 +289,7 @@ elif [[ "$MODE" == "contract" ]]; then
 
     check_backend "http://127.0.0.1:${BACKEND_PORT}"
     check_web "http://127.0.0.1:${WEB_PORT}"
+    check_backend_meta "http://127.0.0.1:${WEB_PORT}" "http://${BACKEND_CONTAINER}:8080/v1/jsonrpc"
     check_proxy "http://127.0.0.1:${WEB_PORT}"
 else
     [[ -f lib/fxrate/dist/index.cjs ]] || fail "lib/fxrate/dist/index.cjs missing — run 'yarn build' in lib/fxrate first"
@@ -274,13 +307,14 @@ else
     wait_http "http://127.0.0.1:${BACKEND_PORT}/info" 60
 
     spawn_local \
-        "cd '$PWD' && exec env FXRATE_API='http://127.0.0.1:${BACKEND_PORT}/v1/jsonrpc' FXRATE_PROXY='http://127.0.0.1:${BACKEND_PORT}/v1/jsonrpc' yarn dev --port '$WEB_PORT'" \
+        "cd '$PWD' && exec env FXBUILD_ID='local-smoke' FXBUILD_TIME='1970-01-01T00:00:00Z' FXRATE_API='http://127.0.0.1:${BACKEND_PORT}/v1/jsonrpc' FXRATE_PROXY='http://127.0.0.1:${BACKEND_PORT}/v1/jsonrpc' yarn dev --port '$WEB_PORT'" \
         "$WORKDIR/web.log"
     # next dev 冷编译在负载高时可能很慢：等待窗口放宽到 300s（只在失败路径消耗）。
     wait_http "http://127.0.0.1:${WEB_PORT}/" 300
 
     check_backend "http://127.0.0.1:${BACKEND_PORT}"
     check_web "http://127.0.0.1:${WEB_PORT}"
+    check_backend_meta "http://127.0.0.1:${WEB_PORT}" "http://127.0.0.1:${BACKEND_PORT}/v1/jsonrpc"
     check_proxy "http://127.0.0.1:${WEB_PORT}"
 fi
 

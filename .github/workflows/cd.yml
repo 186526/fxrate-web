@@ -27,6 +27,7 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  RELEASE_PROXY: https://fxrate.sunoaki.net/v1/jsonrpc
 
 jobs:
   gates:
@@ -43,18 +44,32 @@ jobs:
       id-token: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 24
+          node-version: 24.15.0
           cache: yarn
 
       - name: Install dependencies
         run: yarn install --frozen-lockfile
+
+      - name: Verify release tag and prepare build metadata
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version=$(node -p "require('./package.json').version")
+          tag_version=${GITHUB_REF_NAME#v}
+          if [[ "$tag_version" != "$package_version" ]]; then
+            echo "::error::release tag $GITHUB_REF_NAME does not match package.json version $package_version" >&2
+            exit 1
+          fi
+          echo "build_id=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "build_time=$(date --utc --iso-8601=seconds)" >> "$GITHUB_OUTPUT"
 
       - name: Log in to the Container registry
         uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
@@ -79,7 +94,7 @@ jobs:
       # GHA cache export（--cache-to type=gha）需要 docker-container 驱动：
       # runner 默认 docker 驱动会报 "Cache export is not supported for the docker driver"
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
         with:
           driver: docker-container
 
@@ -94,6 +109,9 @@ jobs:
           load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            FXBUILD_ID=${{ steps.release.outputs.build_id }}
+            FXBUILD_TIME=${{ steps.release.outputs.build_time }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -101,7 +119,7 @@ jobs:
       - name: Smoke exact release image (deterministic, no live banks)
         run: |
           RELEASE_TAG=$(printf '%s\n' '${{ steps.meta.outputs.tags }}' | head -n1)
-          bash scripts/image-smoke.sh --exact --image "$RELEASE_TAG"
+          bash scripts/image-smoke.sh --exact --image "$RELEASE_TAG" --expected-proxy "$RELEASE_PROXY"
 
       # Tier-2：契约镜像（不发布）证明 FXRATE_PROXY build-arg 代理机制，含后端契约、
       # /metrics、JSON-RPC 与 /api/fxrate → smoke 后端全链路。
@@ -123,7 +141,7 @@ jobs:
 
       # This step generates an artifact attestation for the image, which is an unforgeable statement about where and how it was built. It increases supply chain security for people who consume the image. For more information, see "[AUTOTITLE](/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds)."
       - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@ef244123eb79f2f7a7e75d99086184180e6d0018 # v1
         with:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME}}
           subject-digest: ${{ steps.push.outputs.digest }}

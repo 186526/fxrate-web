@@ -1,4 +1,4 @@
-FROM node:24-alpine AS base
+FROM node:24-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43 AS base
 
 # Install dependencies only when needed
 FROM base AS deps
@@ -25,8 +25,8 @@ COPY . .
 # Uncomment the following line in case you want to disable telemetry during the build.
 # ENV NEXT_TELEMETRY_DISABLED=1
 
-# procps: next build 需要；git: next-build-id 的 describe 模式需要 git 命令
-RUN apk add --no-cache procps git
+# procps: next build 需要；版本信息由 build args 注入，不依赖 git 或 .git。
+RUN apk add --no-cache procps
 
 # Phase 6 镜像 smoke：FXRATE_PROXY 在构建期注入（next.config.mjs rewrites 的 /api/fxrate
 # 同源代理目标在 build 时被固化进 standalone 产物）。不传 build-arg 时为空串，
@@ -34,20 +34,24 @@ RUN apk add --no-cache procps git
 ARG FXRATE_PROXY
 ENV FXRATE_PROXY=${FXRATE_PROXY}
 
-RUN cd /app && yarn run build
+# 精确构建标识由 CD 注入；本地/contract 构建使用安全默认值。FXBUILD_TIME 留空时
+# next.config.mjs 在构建进程内生成一次 ISO 时间并冻结进 standalone 产物。
+ARG FXBUILD_ID=container
+ARG FXBUILD_TIME
+ENV FXBUILD_ID=${FXBUILD_ID}
+ENV FXBUILD_TIME=${FXBUILD_TIME}
+
+RUN yarn run build
 
 # Production image, copy all the files and run next
 FROM base AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
-# 与 builder 阶段同一 build-arg：standalone server 运行时若重新求值 rewrites 也拿到同一目标
-ARG FXRATE_PROXY
-ENV FXRATE_PROXY=${FXRATE_PROXY}
 # Uncomment the following line in case you want to disable telemetry during runtime.
 # ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs && apk add --no-cache git
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 
 COPY --from=builder /app/public ./public
 
@@ -57,9 +61,6 @@ RUN chown nextjs:nodejs .next
 
 # Automatically leverage output traces to reduce image size
 # https://nextjs.org/docs/advanced-features/output-file-tracing
-# 完整复制 .git（14M）：page.tsx 运行时 next-build-id 会 git describe / 读 refs，
-# 只复制 HEAD+refs 在 refs 被 gc 打包进 packed-refs 时会读不到导致 500
-COPY --from=builder --chown=nextjs:nodejs /app/.git ./.git
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
