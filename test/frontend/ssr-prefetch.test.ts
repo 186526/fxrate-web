@@ -67,12 +67,11 @@ describe("prefetchDefaultView", () => {
 		expect(mockShow).toHaveBeenCalledTimes(1)
 	})
 
-	it("非默认参数（from/to/amount/precision 任一）直接返回空，零数据请求", async () => {
+	it("非默认参数（from/to/amount 任一）直接返回空，零数据请求", async () => {
 		for (const params of [
 			{ from: "EUR" },
 			{ to: "JPY" },
 			{ amount: "200" },
-			{ precision: "6" },
 		]) {
 			const r = await prefetchDefaultView(params)
 			expect(r.initialCurrencies).toBeNull()
@@ -82,12 +81,51 @@ describe("prefetchDefaultView", () => {
 		expect(mockDetails).not.toHaveBeenCalled()
 	})
 
+	it("precision 是显示偏好：任意合法值（-1~6）都触发预取并透传", async () => {
+		const r = await prefetchDefaultView({ precision: "2" })
+		expect(r.initialResult).toHaveLength(2)
+		expect(mockDetails).toHaveBeenCalledWith(
+			expect.anything(),
+			"USD",
+			"CNY",
+			undefined,
+			{ amount: 100, precision: 2 }
+		)
+		await prefetchDefaultView({ precision: "-1" })
+		expect(mockDetails).toHaveBeenLastCalledWith(
+			expect.anything(),
+			"USD",
+			"CNY",
+			undefined,
+			{ amount: 100, precision: -1 }
+		)
+	})
+
+	it("非法 precision 回退为 4，仍触发预取", async () => {
+		const r = await prefetchDefaultView({ precision: "abc" })
+		expect(r.initialResult).toHaveLength(2)
+		expect(mockDetails).toHaveBeenCalledWith(
+			expect.anything(),
+			"USD",
+			"CNY",
+			undefined,
+			{ amount: 100, precision: 4 }
+		)
+	})
+
 	it("SWR 缓存：45s 内重复调用零网络（show/details 仅一次）", async () => {
 		await prefetchDefaultView({})
 		await prefetchDefaultView({})
 		await prefetchDefaultView({})
 		expect(mockShow).toHaveBeenCalledTimes(1)
 		expect(mockDetails).toHaveBeenCalledTimes(1)
+	})
+
+	it("不同 precision 各自独立缓存（key 含 precision）", async () => {
+		await prefetchDefaultView({ precision: "2" })
+		await prefetchDefaultView({ precision: "4" })
+		expect(mockShow).toHaveBeenCalledTimes(2)
+		expect(mockDetails).toHaveBeenCalledTimes(2)
 	})
 
 	it("showCurrencyAllRates 失败降级为薄壳（空值），不抛错", async () => {

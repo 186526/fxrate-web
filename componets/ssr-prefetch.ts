@@ -38,20 +38,30 @@ function first(v: string | string[] | undefined): string | undefined {
 	return Array.isArray(v) ? v[0] : v
 }
 
-// 仅默认参数（CNY→USD、amount=100、precision=4）才走 SSR 预取；
-// 其余参数组合（含 bf 交叉汇率开关之外的 URL 变化）保持纯客户端
+// 与 index.tsx 的 parsePrecision 同语义：合法精度为 [-1, 6] 的整数（-1 = 原样）
+function parsePrecision(value: string | undefined): number {
+	if (value == null) return 4
+	const precision = Number(value)
+	return Number.isInteger(precision) && precision >= -1 && precision <= 6
+		? precision
+		: 4
+}
+
+// 仅默认货币对（CNY→USD、amount=100）的 pair 视图才走 SSR 预取；
+// precision 是显示偏好（-1~6），随 URL 透传并纳入缓存 key，不参与门槛判定。
+// 其余货币对/金额组合保持纯客户端。「URL 参数变化不触发服务端重拉」的不变量
+// 由 replaceState 不触发 RSC 保证，与这里的预取范围无关——这里只限定全页加载
+// （F5/直接访问/popstate）时的预取范围，避免缓存被任意参数组合撑大。
 function isDefaultView(
 	params: Record<string, string | string[] | undefined>
 ): boolean {
 	const from = first(params.from)
 	const to = first(params.to)
 	const amount = first(params.amount)
-	const precision = first(params.precision)
 	return (
 		(from == null || from == "CNY") &&
 		(to == null || to == "USD") &&
-		(amount == null || amount == "100") &&
-		(precision == null || precision == "4")
+		(amount == null || amount == "100")
 	)
 }
 
@@ -60,7 +70,8 @@ export async function prefetchDefaultView(
 ): Promise<SSRPrefetchData> {
 	if (!isDefaultView(params)) return empty
 
-	const key = "CNY-USD-100-p4"
+	const precision = parsePrecision(first(params.precision))
+	const key = `CNY-USD-100-p${precision}`
 	const hit = swrCache.get(key)
 	if (hit && Date.now() - hit.at < SWR_TTL_MS) return hit.data
 
@@ -80,7 +91,10 @@ export async function prefetchDefaultView(
 				: ""
 
 		const result = await withTimeout(
-			getCurrenciesDetails(cur, "USD", "CNY"),
+			getCurrenciesDetails(cur, "USD", "CNY", undefined, {
+				amount: 100,
+				precision,
+			}),
 			SSR_TIMEOUT_MS
 		)
 		if (!result || result.length == 0) return empty
