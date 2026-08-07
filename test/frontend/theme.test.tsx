@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { StrictMode } from "react"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import Button from "@mui/material/Button"
 import { ThemeProvider, useThemeMode } from "@/componets/theme"
 import { THEME_ATTR } from "@/componets/theme-init"
 
@@ -97,5 +98,31 @@ describe("ThemeProvider StrictMode 持久化", () => {
 		})
 		expect(document.documentElement.getAttribute(THEME_ATTR)).toBe("light")
 		expect(window.localStorage.getItem(THEME_KEY)).toBe("light")
+	})
+
+	it("tonal 按钮文字色：浅色用 primary.dark，暗色用 primary.main（暗色下保证 AA）", async () => {
+		const renderTonal = async (mode: "light" | "dark") => {
+			document.documentElement.setAttribute(THEME_ATTR, mode)
+			const view = render(
+				<StrictMode>
+					<ThemeProvider>
+						<Button variant="tonal">标记</Button>
+					</ThemeProvider>
+				</StrictMode>
+			)
+			const button = view.container.querySelector(".MuiButton-tonal")
+			await waitFor(() => expect(button).toBeTruthy())
+			return { ...view, button: button as HTMLElement }
+		}
+
+		const light = await renderTonal("light")
+		// primary.dark #17494d（浅色品牌深绿，维持既有风格）
+		expect(window.getComputedStyle(light.button).color).toBe("rgb(23, 73, 77)")
+		light.unmount()
+
+		const dark = await renderTonal("dark")
+		// primary.main #8fc3c6（暗色下 primary.dark 于 brandSoft 仅 4.01:1，改用主色达 AA）
+		expect(window.getComputedStyle(dark.button).color).toBe("rgb(143, 195, 198)")
+		dark.unmount()
 	})
 })

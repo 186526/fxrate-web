@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { ThemeProvider } from "@/componets/theme"
 import Index from "@/componets/index"
 import {
+	FXRate,
 	getRatesMatrix,
 	getCurrenciesDetails,
 	showCurrencyAllRates,
@@ -34,7 +35,8 @@ vi.mock("@/componets/tools", async (importOriginal) => {
 
 const getCurrenciesDetailsMock = vi.mocked(getCurrenciesDetails)
 vi.mocked(getRatesMatrix)
-vi.mocked(showCurrencyAllRates)
+const showCurrencyAllRatesMock = vi.mocked(showCurrencyAllRates)
+const infoMock = vi.mocked(FXRate.info)
 
 // initialResult 走 string 时间戳（page.tsx 序列化格式）；
 // FXListGrid 会过滤买卖价全缺的行，测试行须带 buy/sell
@@ -187,6 +189,57 @@ describe("Index 单对刷新替换陈旧快源行", () => {
 		)
 	})
 
+	it("慢源批成功完成但没有新报价时移除旧 Visa 行", async () => {
+		let completeSlowSource!: () => void
+		getCurrenciesDetailsMock.mockReset()
+		getCurrenciesDetailsMock.mockImplementation(
+			async (_currencies, _to, _from, setResult) => {
+				const rows = [liveRow("bankA", 7.1)]
+				if (setResult) {
+					setResult({
+						data: rows,
+						fastFailed: false,
+						slowSourcesState: "pending",
+					})
+					completeSlowSource = () =>
+						setResult({
+							data: rows,
+							fastFailed: false,
+							slowSourcesState: "complete",
+						})
+				}
+				return rows
+			}
+		)
+
+		render(
+			<ThemeProvider>
+				<Index
+					buildId="build"
+					buildTime="2026-01-01T00:00:00.000Z"
+					version="1.0.0"
+					initialCurrencies={{
+						bankA: ["CNY", "USD"],
+						visa: ["CNY", "USD"],
+					}}
+					initialResult={[
+						initialRow("bankA", 7.1),
+						initialRow("visa", 7.3),
+					]}
+				/>
+			</ThemeProvider>
+		)
+
+		await waitFor(() => expect(getCurrenciesDetailsMock).toHaveBeenCalled())
+		expect(screen.getByText("Visa (visa)")).toBeInTheDocument()
+
+		act(() => completeSlowSource())
+		await waitFor(() => {
+			expect(screen.queryByText("Visa (visa)")).not.toBeInTheDocument()
+		})
+		expect(screen.getByText("bankA")).toBeInTheDocument()
+	})
+
 	it("空成功快照后刷新失败显示内联错误，不显示陈旧数据 Snackbar", async () => {
 		getCurrenciesDetailsMock.mockRejectedValue(new Error("pair refresh failed"))
 
@@ -234,6 +287,58 @@ describe("Index 单对刷新替换陈旧快源行", () => {
 		expect(
 			screen.queryByText("刷新失败，当前显示的是上次成功获取的数据。")
 		).not.toBeInTheDocument()
+	})
+})
+
+describe("Index 货币列表恢复重试", () => {
+	beforeEach(() => {
+		showCurrencyAllRatesMock.mockReset()
+		getCurrenciesDetailsMock.mockReset()
+		infoMock.mockReset()
+		infoMock.mockResolvedValue({
+			environment: "test",
+			sources: ["bankA"],
+			version: "fxrate@mock",
+			status: "ok",
+			apiVersion: "1",
+		})
+		getCurrenciesDetailsMock.mockImplementation(
+			async (_currencies, _to, _from, setResult) => {
+				const rows = [liveRow("bankA", 7.1)]
+				setResult?.({
+					data: rows,
+					fastFailed: false,
+					slowSourcesState: "none",
+				})
+				return rows
+			}
+		)
+	})
+
+	it("初次加载失败后可点击重试并恢复报价", async () => {
+		const user = userEvent.setup()
+		showCurrencyAllRatesMock
+			.mockRejectedValueOnce(new Error("backend unavailable"))
+			.mockResolvedValueOnce({ bankA: ["CNY", "USD"] })
+
+		render(
+			<ThemeProvider>
+				<Index
+					buildId="build"
+					buildTime="2026-01-01T00:00:00.000Z"
+					version="1.0.0"
+				/>
+			</ThemeProvider>
+		)
+
+		expect(await screen.findByText("backend unavailable")).toBeInTheDocument()
+		await user.click(screen.getByRole("button", { name: "重试" }))
+
+		await waitFor(() => {
+			expect(showCurrencyAllRatesMock).toHaveBeenCalledTimes(2)
+			expect(getCurrenciesDetailsMock).toHaveBeenCalled()
+		})
+		expect(await screen.findByText("bankA")).toBeInTheDocument()
 	})
 })
 
@@ -363,7 +468,7 @@ describe("单对表格语义", () => {
 		expect(nameTh).toHaveAttribute("scope", "row")
 	})
 
-	it("StatsTip 触发格键盘可聚焦；交叉路径格带经路径折算的 aria-label", () => {
+	it("StatsTip 每表仅保留一个键盘入口；交叉路径格保留折算 aria-label", () => {
 		const crossRow: Omit<FXListProps, "updated"> & { updated: string } = {
 			name: "bankA",
 			type: {
@@ -403,11 +508,13 @@ describe("单对表格语义", () => {
 		)
 		expect(buyCash).toHaveAttribute("tabindex", "0")
 
-		// 无路径的普通行格以可见数字作为名称，并同样可聚焦
+		// 无路径的普通行格以可见数字作为名称，也不强制加入顺序 Tab 导航
 		const normalMiddle = screen.getByText("8.1")
 		expect(normalMiddle).toHaveAttribute("aria-label", "8.1")
 		expect(normalMiddle).toHaveAccessibleName("8.1")
-		expect(normalMiddle).toHaveAttribute("tabindex", "0")
+		expect(normalMiddle).not.toHaveAttribute("tabindex")
+		const table = screen.getByRole("table", { name: /银行\/平台买卖牌价表/ })
+		expect(table.querySelectorAll("td > span[tabindex='0']")).toHaveLength(1)
 	})
 
 	it("仅让含额外信息的 footer tooltip 进入 Tab 顺序；更新时间表头保留可见名称", async () => {

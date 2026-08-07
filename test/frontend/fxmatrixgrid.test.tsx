@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from "vitest"
+import * as React from "react"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { createTheme, ThemeProvider } from "@mui/material/styles"
@@ -13,6 +14,10 @@ vi.mock("@/componets/tools", async (importOriginal) => {
 })
 
 const mockedRow = vi.mocked(getSourceMatrixRow)
+
+beforeEach(() => {
+	localStorage.clear()
+})
 
 const theme = createTheme({
 	palette: {
@@ -188,6 +193,23 @@ describe("FXMatrixGrid 单元格深合并 / key 行为", () => {
 		await user.hover(screen.getByText("7.1"))
 		expect(await screen.findByText(/CNY → HKD → USD/)).toBeInTheDocument()
 	})
+
+	it("部分单元格缺少 middle 时保持缺失，不伪造 0 报价", async () => {
+		const user = userEvent.setup()
+		mockedRow.mockResolvedValue({
+			USD: { cash: 6.9 } as RatesMatrixCell,
+		})
+		renderGrid({
+			sourceCurrencies: { bankA: ["USD"], visa: ["USD"] },
+		})
+
+		await user.click(screen.getByRole("button", { name: "点击加载" }))
+		await waitFor(() => expect(mockedRow).toHaveBeenCalled())
+		expect(screen.queryByText("0")).not.toBeInTheDocument()
+
+		await user.click(screen.getByRole("button", { name: "现钞" }))
+		expect(await screen.findByText("6.9")).toBeInTheDocument()
+	})
 })
 
 describe("额外行 keyed 快照 / 失败重试 / 计数一致性", () => {
@@ -273,6 +295,55 @@ describe("额外行 keyed 快照 / 失败重试 / 计数一致性", () => {
 		).not.toBeInTheDocument()
 	})
 
+	it("StrictMode 双挂载 abort 后自动补查复位并重试：unchanged-key AbortError 不留下 loading/去重", async () => {
+		// 模拟 getSourceMatrixRow 真实行为：signal 中止时以 AbortError 拒绝。
+		// 第一次调用（StrictMode 首次挂载）挂起等待 abort；第二次（重挂载后的
+		// 重试）正常返回数据。旧实现 catch 对 AbortError 直接 return，status 卡在
+		// loading + autoAttemptedRef 去重，重挂载后不再补查（死锁）。
+		const abortError = () =>
+			Object.assign(new Error("aborted"), { name: "AbortError" })
+		let call = 0
+		mockedRow.mockImplementation(
+			(_source, _supported, _targets, _from, options) => {
+				const signal = options?.signal
+				if (signal?.aborted) return Promise.reject(abortError())
+				call++
+				if (call == 1) {
+					return new Promise((_resolve, reject) => {
+						signal?.addEventListener(
+							"abort",
+							() => reject(abortError()),
+							{ once: true }
+						)
+					})
+				}
+				return Promise.resolve({ USD: { middle: 7.3 } })
+			}
+		)
+		render(
+			<React.StrictMode>
+				<ThemeProvider theme={theme}>
+					<FXMatrixGrid
+						data={{ bankA: { USD: { middle: 7.1 } }, mastercard: {} }}
+						from="CNY"
+						amount={100}
+						sourceCurrencies={{
+							bankA: ["USD"],
+							mastercard: ["USD"],
+						}}
+					/>
+				</ThemeProvider>
+			</React.StrictMode>
+		)
+
+		// StrictMode cleanup abort 后必须复位并重试（第二次调用成功返回数据）
+		await waitFor(() => expect(mockedRow).toHaveBeenCalledTimes(2))
+		expect(await screen.findByText("7.3")).toBeInTheDocument()
+		expect(
+			screen.queryByRole("button", { name: "加载中..." })
+		).not.toBeInTheDocument()
+	})
+
 	it("最优价计数分子与分母使用同一可见来源集（隐藏来源不计入分子）", () => {
 		// bankC 只有 SEK（非常用币种，默认不启用）→ 行隐藏；且不在默认排除集。
 		// 旧实现分子按全部非排除源计数会得出 2/1，现实现分子与分母同取可见源
@@ -329,7 +400,7 @@ describe("矩阵表格语义", () => {
 		expect(sourceTh).toHaveAttribute("scope", "row")
 	})
 
-	it("交叉路径格可聚焦且带经路径折算的 aria-label", () => {
+	it("交叉路径格带折算 aria-label，并作为表格唯一 StatsTip 键盘入口", () => {
 		renderGrid({
 			data: {
 				bankA: {
@@ -346,7 +417,7 @@ describe("矩阵表格语义", () => {
 		expect(cell).toHaveAttribute("tabindex", "0")
 	})
 
-	it("移动端 StatsTip：Enter/Space 键盘激活弹窗，触发格带 aria-haspopup/aria-expanded", async () => {
+	it("移动端 StatsTip：触摸点击打开弹窗，但大量数字格不形成 Tab 停靠洪泛", async () => {
 		const originalMatchMedia = window.matchMedia
 		window.matchMedia = (() => ({
 			matches: true,
@@ -359,33 +430,74 @@ describe("矩阵表格语义", () => {
 			dispatchEvent: () => false,
 		})) as unknown as typeof window.matchMedia
 		try {
-			const { unmount } = renderGrid()
+			renderGrid()
 			const cell = screen.getByText("7.1")
-		expect(cell).toHaveAttribute("tabindex", "0")
-		expect(cell).toHaveAttribute("role", "button")
-		expect(cell).toHaveAttribute("aria-haspopup", "dialog")
+			const secondCell = screen.getByText("8.2")
+			expect(cell).toHaveAttribute("tabindex", "0")
+			expect(cell).toHaveAttribute("role", "button")
+			expect(cell).toHaveAttribute("aria-haspopup", "dialog")
 			expect(cell).toHaveAttribute("aria-expanded", "false")
+			expect(secondCell).not.toHaveAttribute("tabindex")
+			expect(secondCell).not.toHaveAttribute("role")
 
-			// Enter 激活弹窗：统计内容出现，aria-expanded 翻转；
-			// aria-haspopup=dialog 契约要求弹窗是带可访问名称的 role=dialog
 			fireEvent.keyDown(cell, { key: "Enter" })
 			expect(
 				await screen.findByRole("dialog", { name: "汇率统计详情" })
 			).toBeInTheDocument()
 			expect(await screen.findByText(/平均/)).toBeInTheDocument()
 			expect(cell).toHaveAttribute("aria-expanded", "true")
-
-			// Space 同样可键盘激活：重新挂载后按空格打开弹窗
-			unmount()
-			renderGrid()
-			const cell2 = screen.getByText("7.1")
-			expect(cell2).toHaveAttribute("aria-expanded", "false")
-			fireEvent.keyDown(cell2, { key: " " })
-			expect(await screen.findByText(/平均/)).toBeInTheDocument()
-			expect(cell2).toHaveAttribute("aria-expanded", "true")
 		} finally {
 			window.matchMedia = originalMatchMedia
 		}
+	})
+
+	it("桌面端整张矩阵仅保留一个 StatsTip 顺序 Tab 入口", () => {
+		renderGrid()
+		const table = screen.getByRole("table")
+		const statsTabStops = table.querySelectorAll("td > span[tabindex='0']")
+		expect(statsTabStops).toHaveLength(1)
+		expect(statsTabStops[0]).toHaveTextContent("7.1")
+		expect(screen.getByText("8.2")).not.toHaveAttribute("tabindex")
+	})
+
+	it("常用货币按产品定义顺序展示，列排序暴露 aria-sort，报价类型组有名称", async () => {
+		const user = userEvent.setup()
+		renderGrid({
+			data: {
+				bankA: {
+					THB: { middle: 4.1 },
+					USD: { middle: 7.1 },
+					EUR: { middle: 8.2 },
+				},
+			},
+		})
+
+		const headers = screen.getAllByRole("columnheader")
+		expect(headers.map((header) => header.textContent)).toEqual([
+			"银行/平台",
+			"🇺🇸USD",
+			"🇪🇺EUR",
+			"🇹🇭THB",
+		])
+		expect(screen.getByRole("group", { name: "报价类型" })).toBeInTheDocument()
+
+		await user.click(screen.getByRole("button", { name: /USD/ }))
+		expect(headers[1]).toHaveAttribute("aria-sort", "ascending")
+		await user.click(screen.getByRole("button", { name: /USD/ }))
+		expect(headers[1]).toHaveAttribute("aria-sort", "descending")
+	})
+
+	it("用户清空全部显示货币后呈现明确空态且不显示慢源加载入口", async () => {
+		localStorage.setItem("fxrate-matrix-currencies", "[]")
+		renderGrid({
+			sourceCurrencies: { bankA: ["USD", "EUR"], visa: ["USD"] },
+		})
+
+		expect(
+			await screen.findByText(/未选择显示货币/)
+		).toBeInTheDocument()
+		expect(screen.queryByRole("button", { name: "点击加载" })).not.toBeInTheDocument()
+		expect(mockedRow).not.toHaveBeenCalled()
 	})
 
 	it("桌面端 StatsTip describeChild：Tooltip 打开后触发格经 aria-describedby 关联统计描述", async () => {

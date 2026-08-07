@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ThemeProvider } from "@/componets/theme"
 
 import APIDocs from "@/componets/apidocs"
+import { MethodBadge, RequestResult } from "@/componets/api-docs/ui"
 
 const setFetch = (globalThis as unknown as {
 	__fxSetFetch: (implementation: typeof fetch | null) => void
@@ -110,6 +111,28 @@ describe("APIDocs", () => {
 		expect(screen.getByText("没有匹配端点")).toBeInTheDocument()
 	})
 
+	it("mobile navigation stays collapsed until the browse control opens it", () => {
+		const originalMatchMedia = window.matchMedia
+		window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+			matches: query.includes("max-width:899.95px"),
+			media: query,
+			onchange: null,
+			addListener: () => undefined,
+			removeListener: () => undefined,
+			addEventListener: () => undefined,
+			removeEventListener: () => undefined,
+			dispatchEvent: () => false,
+		}))
+		try {
+			renderDocs()
+			expect(screen.queryByRole("link", { name: /getFXRate/ })).not.toBeInTheDocument()
+			fireEvent.click(screen.getByRole("button", { name: "浏览端点" }))
+			expect(screen.getByRole("link", { name: /getFXRate/ })).toBeInTheDocument()
+		} finally {
+			window.matchMedia = originalMatchMedia
+		}
+	})
+
 	it("preserves endpoint parameter values while edit mode resets across selection changes", () => {
 		window.history.replaceState(null, "", "/api-docs#rpc-get-rate")
 		renderDocs()
@@ -132,5 +155,34 @@ describe("APIDocs", () => {
 		expect(screen.queryByRole("spinbutton", { name: "参数 amount" })).not.toBeInTheDocument()
 		fireEvent.click(screen.getByRole("button", { name: "试试看" }))
 		expect(screen.getByRole("spinbutton", { name: "参数 amount" })).toHaveValue(250)
+	})
+
+	it("dark mode method badge uses the readable primary token", async () => {
+		document.documentElement.setAttribute("data-theme", "dark")
+		render(
+			<ThemeProvider>
+				<MethodBadge method="GET" />
+			</ThemeProvider>
+		)
+
+		await waitFor(() =>
+			expect(window.getComputedStyle(screen.getByText("GET")).color).toBe(
+				"rgb(143, 195, 198)"
+			)
+		)
+	})
+
+	it("timeout response is presented as an alert with a clear timeout heading", () => {
+		render(
+			<ThemeProvider>
+				<RequestResult
+					state={{ status: "error", message: "请求超时（10 秒），请稍后重试" }}
+				/>
+			</ThemeProvider>
+		)
+
+		const alert = screen.getByRole("alert")
+		expect(alert).toHaveTextContent("请求超时")
+		expect(alert).toHaveTextContent("请稍后重试")
 	})
 })

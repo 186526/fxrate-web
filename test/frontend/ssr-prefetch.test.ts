@@ -6,7 +6,6 @@ import {
 } from "@/componets/ssr-prefetch"
 import {
 	getCurrenciesDetails,
-	getFXRateClient,
 	showCurrencyAllRates,
 } from "@/componets/tools"
 
@@ -149,7 +148,11 @@ describe("prefetchDefaultView", () => {
 		mockDetails.mockResolvedValue([
 			{ ...liveRow("bankA", 7.1), updated: new Date("invalid") },
 		])
+		const before = Date.now()
 		const r = await prefetchDefaultView({})
-		expect(r.initialResult![0].updated).toBe(new Date().toISOString())
+		const after = Date.now()
+		const fallbackTime = Date.parse(r.initialResult![0].updated)
+		expect(fallbackTime).toBeGreaterThanOrEqual(before)
+		expect(fallbackTime).toBeLessThanOrEqual(after)
 	})
 })

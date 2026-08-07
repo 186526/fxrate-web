@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it } from "vitest"
 import { render, screen } from "@testing-library/react"
 import { createTheme, ThemeProvider } from "@mui/material/styles"
 import FXListGrid, { FXListProps } from "@/componets/fxlistgrid"
+
+beforeEach(() => {
+	localStorage.clear()
+})
 
 const theme = createTheme({
 	palette: {
@@ -67,6 +71,21 @@ describe("FXListGrid 最优价计数文案", () => {
 			screen.getByRole("button", { name: "参与高亮 2/3 家" })
 		).toBeInTheDocument()
 	})
+
+	it("分子分母都只统计至少含一个有效数值报价的来源", () => {
+		renderList([
+			...baseProps(),
+			{
+				name: "metadataOnly",
+				type: { buy: { cash: true as unknown as number } },
+				updated: new Date(),
+			},
+		])
+
+		expect(
+			screen.getByRole("button", { name: "参与高亮 3/3 家" })
+		).toBeInTheDocument()
+	})
 })
 
 describe("FXListGrid 斑马纹 / 宽度规则", () => {
@@ -129,5 +148,14 @@ describe("FXListGrid 斑马纹 / 宽度规则", () => {
 		expect(style.whiteSpace).toBe("nowrap")
 		expect(style.textOverflow).toBe("ellipsis")
 		expect(style.overflow).toBe("hidden")
+	})
+
+	it("数值列的表头与正文统一右对齐", () => {
+		renderList()
+		const header = screen.getByRole("columnheader", { name: "购钞价" })
+		const cell = screen.getByText("7.05").closest("td") as HTMLElement
+
+		expect(window.getComputedStyle(header).textAlign).toBe("right")
+		expect(window.getComputedStyle(cell).textAlign).toBe("right")
 	})
 })

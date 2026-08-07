@@ -2,7 +2,7 @@
 // proxy（Phase 4B 任务 13，nonce-based CSP）：验证每请求唯一 nonce 注入请求头
 // x-nonce（layout 读取 + Next 自动 nonce 化自身脚本）、production 响应头 CSP（nonce
 // 与 x-nonce 一致、script-src 无 unsafe-inline）、dev 不注入 CSP 但恒有 x-nonce、
-// 以及既有 x-fx-release 行为保持不变。mock next/server，不依赖真实 Next 运行时。
+// 以及构建标识/时间响应头。mock next/server，不依赖真实 Next 运行时。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -62,6 +62,7 @@ beforeEach(() => {
 	vi.clearAllMocks()
 	nextMock.next.mockReset()
 	nextMock.requestHeaders = null
+	delete process.env.FXBUILD_ID
 	delete process.env.FXBUILD_TIME
 	envWrite.NODE_ENV = "production"
 })
@@ -71,11 +72,12 @@ afterEach(() => {
 })
 
 describe("proxy nonce 与 CSP", () => {
-	it("production 下注入 x-nonce 与含同值 nonce 的 CSP，且保留 x-fx-release", () => {
+	it("production 下注入 x-nonce、CSP 与构建元数据响应头", () => {
 		const responseHeaders = makeResponseMock()
 		proxy(makeRequest() as never)
 
 		expect(responseHeaders.get("x-fx-release")).toBe("dev")
+		expect(responseHeaders.get("x-fx-build-time")).toBe("dev")
 		const nonce = requiredHeader(responseHeaders, "x-nonce")
 		const csp = requiredHeader(responseHeaders, "Content-Security-Policy")
 		expect(csp).toBe(buildCspHeader(nonce))
@@ -150,5 +152,16 @@ describe("generateCspNonce / buildCspHeader", () => {
 		expect(csp).toContain("object-src 'none'")
 		expect(csp).toContain("base-uri 'self'")
 		expect(csp).toContain("form-action 'self'")
+		expect(csp).toContain("frame-ancestors 'none'")
+	})
+
+	it("构建标识与时间分别写入响应头", () => {
+		process.env.FXBUILD_ID = "abc1234"
+		process.env.FXBUILD_TIME = "2026-08-08T00:00:00Z"
+		const responseHeaders = makeResponseMock()
+		proxy(makeRequest() as never)
+
+		expect(responseHeaders.get("x-fx-release")).toBe("abc1234")
+		expect(responseHeaders.get("x-fx-build-time")).toBe("2026-08-08T00:00:00Z")
 	})
 })

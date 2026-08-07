@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { EndpointRequestCoordinator, type RequestState } from "@/componets/api-docs/request"
+import {
+	API_REQUEST_TIMEOUT_MS,
+	EndpointRequestCoordinator,
+	fetchRest,
+	type RequestState,
+} from "@/componets/api-docs/request"
 
 function deferred<T>() {
 	let resolvePromise: (value: T) => void = () => undefined
@@ -94,5 +99,52 @@ describe("EndpointRequestCoordinator", () => {
 		await Promise.resolve()
 		expect(signals[0].aborted).toBe(true)
 		expect(states.some((state) => state.status == "error")).toBe(false)
+	})
+})
+
+describe("API docs fetch timeout", () => {
+	afterEach(() => {
+		vi.useRealTimers()
+		vi.unstubAllGlobals()
+	})
+
+	it("真正超时转换为 TimeoutError，供工作台显示重试语义", async () => {
+		vi.useFakeTimers()
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+				new Promise<Response>((_resolve, reject) => {
+					init?.signal?.addEventListener("abort", () =>
+						reject(new DOMException("Aborted", "AbortError"))
+					)
+				})
+		))
+		const promise = fetchRest("/info", new AbortController().signal)
+		const assertion = expect(promise).rejects.toMatchObject({
+			name: "TimeoutError",
+			message: expect.stringContaining("请求超时"),
+		})
+
+		await vi.advanceTimersByTimeAsync(API_REQUEST_TIMEOUT_MS)
+		await assertion
+	})
+
+	it("调用方主动取消仍保留 AbortError，不误报为超时", async () => {
+		vi.useFakeTimers()
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+				new Promise<Response>((_resolve, reject) => {
+					init?.signal?.addEventListener("abort", () =>
+						reject(new DOMException("Aborted", "AbortError"))
+					)
+				})
+		))
+		const controller = new AbortController()
+		const promise = fetchRest("/info", controller.signal)
+		controller.abort()
+
+		await expect(promise).rejects.toMatchObject({ name: "AbortError" })
+		await vi.advanceTimersByTimeAsync(API_REQUEST_TIMEOUT_MS)
 	})
 })

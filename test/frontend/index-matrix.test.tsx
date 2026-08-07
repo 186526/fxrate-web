@@ -12,14 +12,15 @@ import {
 } from "@/componets/tools"
 import type { RatesMatrix } from "@/componets/tools"
 
-const { mockSearchParams } = vi.hoisted(() => ({
+const { mockSearchParams, mockNavigation } = vi.hoisted(() => ({
 	mockSearchParams: new URLSearchParams(),
+	mockNavigation: { pathname: "/matrix" },
 }))
 
 vi.mock("next/navigation", () => ({
 	useSearchParams: () => mockSearchParams,
 	useRouter: () => ({ push: vi.fn() }),
-	usePathname: () => "/matrix",
+	usePathname: () => mockNavigation.pathname,
 }))
 
 vi.mock("@/componets/tools", async (importOriginal) => {
@@ -58,6 +59,10 @@ let pending: DeferredMatrix[] = []
 
 const waitForPending = (count: number, timeout = 3000) =>
 	waitFor(() => expect(pending).toHaveLength(count), { timeout })
+
+beforeEach(() => {
+	mockNavigation.pathname = "/matrix"
+})
 
 describe("Index 矩阵请求作废（stale matrix race）", () => {
 	beforeEach(() => {
@@ -171,6 +176,74 @@ describe("Index 矩阵手动刷新额外行代际", () => {
 		expect(await screen.findByText("7.2")).toBeInTheDocument()
 		expect(getSourceMatrixRow).toHaveBeenCalledTimes(2)
 	}, 10_000)
+})
+
+describe("Index 矩阵加载与自动刷新", () => {
+	beforeEach(() => {
+		getRatesMatrixMock.mockReset()
+		vi.mocked(getCurrenciesDetails).mockReset()
+	})
+
+	it("从单对首次切入矩阵时立即显示骨架，不闪出空矩阵提示", async () => {
+		const user = userEvent.setup()
+		mockNavigation.pathname = "/"
+		vi.mocked(getCurrenciesDetails).mockResolvedValue([])
+		getRatesMatrixMock.mockImplementation(() => new Promise(() => {}))
+
+		render(
+			<ThemeProvider>
+				<Index
+					buildId="build"
+					buildTime="2026-01-01T00:00:00.000Z"
+					version="1.0.0"
+					initialCurrencies={{ bankA: ["CNY", "USD"] }}
+				/>
+			</ThemeProvider>
+		)
+
+		await user.click(screen.getByRole("tab", { name: "全对矩阵" }))
+		expect(screen.queryByText("暂无矩阵数据")).not.toBeInTheDocument()
+		expect(screen.getByText("银行/平台")).toBeInTheDocument()
+	})
+
+	it("矩阵视图在页面可见时每 60 秒强制刷新", async () => {
+		vi.useFakeTimers()
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
+			value: "visible",
+		})
+		getRatesMatrixMock.mockResolvedValue({
+			bankA: { USD: { middle: 7.1 } },
+		})
+
+		try {
+			render(
+				<ThemeProvider>
+					<Index
+						buildId="build"
+						buildTime="2026-01-01T00:00:00.000Z"
+						version="1.0.0"
+						initialCurrencies={{ bankA: ["CNY", "USD"] }}
+						initialMatrix={{ bankA: { USD: { middle: 7.0 } } }}
+					/>
+				</ThemeProvider>
+			)
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(300)
+			})
+			expect(getRatesMatrixMock).toHaveBeenCalledTimes(1)
+			expect(getRatesMatrixMock.mock.calls[0][2]?.force).toBe(false)
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(59700)
+			})
+			expect(getRatesMatrixMock).toHaveBeenCalledTimes(2)
+			expect(getRatesMatrixMock.mock.calls[1][2]?.force).toBe(true)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
 })
 
 describe("Index 矩阵 stale revalidation 提示", () => {

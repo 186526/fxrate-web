@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest"
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { createTheme, ThemeProvider } from "@mui/material/styles"
 import CurrencyChooser from "@/componets/currencyChooser"
@@ -170,5 +170,21 @@ describe("CurrencyChooser decimal amount 契约", () => {
 		// 0 不满足"正有限小数"契约 → 浏览器约束（min=Number.MIN_VALUE）拒绝
 		input.value = "0"
 		expect(input.checkValidity()).toBe(false)
+	})
+
+	it("非法金额显示可访问错误，并在失焦时恢复最后有效的外部值", () => {
+		const onAmountChange = vi.fn()
+		renderChooser({ amount: 100.5, onAmountChange })
+		const input = screen.getByRole("spinbutton") as HTMLInputElement
+
+		fireEvent.change(input, { target: { value: "0" } })
+		expect(input).toHaveAttribute("aria-invalid", "true")
+		expect(screen.getByRole("alert")).toHaveTextContent("请输入大于 0 的有效金额")
+		expect(onAmountChange).not.toHaveBeenCalled()
+
+		fireEvent.blur(input)
+		expect(input.value).toBe("100.5")
+		expect(input).toHaveAttribute("aria-invalid", "false")
+		expect(screen.queryByRole("alert")).not.toBeInTheDocument()
 	})
 })

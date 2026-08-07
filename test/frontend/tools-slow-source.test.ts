@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { getCurrenciesDetails } from "@/componets/tools"
+import { FXRate, getCurrenciesDetails, rssURL } from "@/componets/tools"
 import type { FXDetailsUpdate } from "@/componets/tools"
 import { createBatchMock } from "./jsonrpc"
 import type { JsonRpcRequest } from "./jsonrpc"
@@ -173,6 +173,28 @@ describe("getCurrenciesDetails 慢源缓存完整性", () => {
 		expect(stats.batches).toBeGreaterThan(beforeRetry)
 	})
 
+	it("慢源批成功但返回空报价时发出 complete 更新，允许调用方淘汰旧行", async () => {
+		const currencies = { bankA: ["CNY", "NZD"], visa: ["CNY", "NZD"] }
+		const setResult = vi.fn()
+		createBatchMock({
+			getFXRate: (params) =>
+				params.source == "visa" ? { updated: isoNow() } : okRate(),
+		})
+
+		await getCurrenciesDetails(currencies, "NZD", "CNY", setResult, {
+			amount: 777,
+			precision: 4,
+		})
+
+		await vi.waitFor(() => {
+			const last = setResult.mock.calls.at(-1)?.[0] as
+				| FXDetailsUpdate
+				| undefined
+			expect(last?.slowSourcesState).toBe("complete")
+			expect(last?.data.some((row) => row.name == "visa")).toBe(false)
+		})
+	})
+
 	it("force 接管后先完成的过期慢源批不得写入缓存（代际在请求开始登记）", async () => {
 		const currencies = { bankA: ["CNY", "GBP"], visa: ["CNY", "GBP"] }
 		const setResultA = vi.fn()
@@ -267,5 +289,19 @@ describe("getCurrenciesDetails 慢源缓存完整性", () => {
 		expect(batches).toHaveLength(5) // 命中缓存，零新增请求
 		expect(r.find((x) => x.name == "bankA")?.type.middle).toBe(7.5)
 		expect(r.find((x) => x.name == "visa")?.type.middle).toBe(7.6)
+	})
+})
+
+describe("浏览器 RSS 链接", () => {
+	it("浏览器 JSON-RPC 同源代理映射到 /api/rest/rss", () => {
+		const originalEndpoint = FXRate.endpoint
+		FXRate.endpoint = new URL("/api/fxrate", window.location.origin)
+		try {
+			const url = new URL(rssURL("USD", "CNY"))
+			expect(url.origin).toBe(window.location.origin)
+			expect(url.pathname).toBe("/api/rest/rss/USD/CNY")
+		} finally {
+			FXRate.endpoint = originalEndpoint
+		}
 	})
 })

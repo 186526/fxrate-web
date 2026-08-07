@@ -1,11 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
 	getCurrenciesDetails,
+	getFXRateClient,
 	getRatesMatrix,
 	getSourceMatrixRow,
+	rssURL,
 	showCurrencyAllRates,
+	withTimeout,
 } from "@/componets/tools"
-import { createBatchMock, createNetworkErrorMock } from "./jsonrpc"
+import {
+	createBatchMock,
+	createDeferredBatchMock,
+	createNetworkErrorMock,
+} from "./jsonrpc"
 
 const isoNow = () => new Date().toISOString()
 
@@ -14,6 +21,45 @@ const okRate = (p: Record<string, unknown>) => ({
 	cash: 7.05,
 	remit: 7.08,
 	updated: isoNow(),
+})
+
+describe("URL 与超时工具", () => {
+	afterEach(() => {
+		vi.useRealTimers()
+	})
+
+	it("服务端直连 JSON-RPC 时 RSS 链接指向同一后端的 /rss 路由", () => {
+		const url = new URL(rssURL("USD", "CNY"))
+		expect(url.origin).toBe(getFXRateClient().endpoint.origin)
+		expect(url.pathname).toBe("/rss/USD/CNY")
+	})
+
+	it("withTimeout 在原 Promise 提前完成时清除超时定时器", async () => {
+		vi.useFakeTimers()
+		await expect(withTimeout(Promise.resolve("ok"), 5000)).resolves.toBe("ok")
+		expect(vi.getTimerCount()).toBe(0)
+	})
+
+	it("withTimeout 在原 Promise 提前拒绝时同样清除超时定时器", async () => {
+		vi.useFakeTimers()
+		await expect(
+			withTimeout(Promise.reject(new Error("failed")), 5000)
+		).rejects.toThrow("failed")
+		expect(vi.getTimerCount()).toBe(0)
+	})
+
+	it("withTimeout 到期返回 null，并消化原 Promise 的后续拒绝", async () => {
+		vi.useFakeTimers()
+		let reject!: (error: Error) => void
+		const pending = new Promise<string>((_resolve, rejectPromise) => {
+			reject = rejectPromise
+		})
+		const timed = withTimeout(pending, 1000)
+		await vi.advanceTimersByTimeAsync(1000)
+		await expect(timed).resolves.toBeNull()
+		reject(new Error("late failure"))
+		await Promise.resolve()
+	})
 })
 
 describe("showCurrencyAllRates", () => {
@@ -138,6 +184,44 @@ describe("getCurrenciesDetails", () => {
 		})
 		expect(result.map((r) => r.name)).toEqual(["bankA"])
 		expect(err).toHaveBeenCalled()
+	})
+
+	it("来源返回不可用占位数据时不缓存部分结果，下次仍重新请求", async () => {
+		const currencies = {
+			bankComplete: ["CNY", "CAD"],
+			bankEmpty: ["CNY", "CAD"],
+		}
+		let emptyOk = false
+		const stats = createBatchMock({
+			getFXRate: (p) =>
+				p.source == "bankEmpty" && !emptyOk
+					? { updated: isoNow() }
+					: okRate(p),
+		})
+
+		const first = await getCurrenciesDetails(
+			currencies,
+			"CAD",
+			"CNY",
+			undefined,
+			{ amount: 321, precision: 4 }
+		)
+		expect(first.map((row) => row.name)).toEqual(["bankComplete"])
+
+		emptyOk = true
+		const batchesBeforeRetry = stats.batches
+		const second = await getCurrenciesDetails(
+			currencies,
+			"CAD",
+			"CNY",
+			undefined,
+			{ amount: 321, precision: 4 }
+		)
+		expect(stats.batches).toBeGreaterThan(batchesBeforeRetry)
+		expect(second.map((row) => row.name).sort()).toEqual([
+			"bankComplete",
+			"bankEmpty",
+		])
 	})
 
 	it("来源/支持货币变化（partial map）时缓存 key 指纹变化，不命中旧数据", async () => {		const currencies = { bankA: ["CNY", "USD"], bankB: ["CNY", "USD"] }
@@ -395,6 +479,58 @@ describe("getRatesMatrix / getSourceMatrixRow", () => {
 		).rejects.toThrow("暂无可用报价")
 	})
 
+	it("getSourceMatrixRow 将同时空行补查限制为 4 个独立批次", async () => {
+		const { stats, handles } = createDeferredBatchMock({ getFXRate: okRate })
+		const requests = Array.from({ length: 6 }, (_, index) =>
+			getSourceMatrixRow(
+				`burst${index}`,
+				["USD"],
+				["USD"],
+				"CNY",
+				{ amount: 909, precision: 4 }
+			)
+		)
+
+		await vi.waitFor(() => expect(handles).toHaveLength(4))
+		expect(stats.batches).toBe(4)
+		for (const handle of handles.slice(0, 4)) handle.resolve()
+
+		await vi.waitFor(() => expect(handles).toHaveLength(6))
+		expect(stats.batches).toBe(6)
+		for (const handle of handles.slice(4)) handle.resolve()
+		await expect(Promise.all(requests)).resolves.toHaveLength(6)
+	})
+
+	it("排队中的矩阵行补查被取消时零网络启动且释放等待器", async () => {
+		const { stats, handles } = createDeferredBatchMock({ getFXRate: okRate })
+		const active = Array.from({ length: 4 }, (_, index) =>
+			getSourceMatrixRow(
+				`active${index}`,
+				["EUR"],
+				["EUR"],
+				"CNY",
+				{ amount: 910, precision: 4 }
+			)
+		)
+		await vi.waitFor(() => expect(handles).toHaveLength(4))
+
+		const controller = new AbortController()
+		const queued = getSourceMatrixRow(
+			"queued",
+			["EUR"],
+			["EUR"],
+			"CNY",
+			{ amount: 910, precision: 4, signal: controller.signal }
+		)
+		controller.abort()
+		await expect(queued).rejects.toMatchObject({ name: "AbortError" })
+		expect(stats.batches).toBe(4)
+
+		for (const handle of handles) handle.resolve()
+		await expect(Promise.all(active)).resolves.toHaveLength(4)
+		expect(stats.batches).toBe(4)
+	})
+
 	it("getRatesMatrix 与 getSourceMatrixRow 同样透传小数金额到后端", async () => {
 		const stats = createBatchMock({
 			listFXRates: (p) => {
@@ -422,9 +558,9 @@ describe("getRatesMatrix / getSourceMatrixRow", () => {
 	})
 })
 
-	it("超过后端批量上限时按 ≤45 源分块（避免整批 -32000 拒绝）", async () => {
+	it("超过后端批量上限时按 ≤70 源分块（避免整批 -32000 拒绝）", async () => {
 		const currencies: { [source: string]: string[] } = {}
-		for (let i = 0; i < 50; i += 1) {
+		for (let i = 0; i < 80; i += 1) {
 			currencies[`bank${String(i).padStart(2, "0")}`] = ["CNY", "USD"]
 		}
 		const stats = createBatchMock({ getFXRate: okRate })
@@ -437,11 +573,11 @@ describe("getRatesMatrix / getSourceMatrixRow", () => {
 			{ amount: 100, precision: 4 }
 		)
 
-		// 50 源 × 2 方向 = 100 条；45 源/批 → 2 批（90 + 10），每批不超 90
+		// 80 源 × 2 方向 = 160 条；70 源/批 → 2 批（140 + 20），每批不超 140
 		expect(stats.batches).toBe(2)
-		expect(stats.methods.getFXRate).toBe(100)
+		expect(stats.methods.getFXRate).toBe(160)
 		for (const body of stats.bodies) {
-			expect(body.length).toBeLessThanOrEqual(90)
+			expect(body.length).toBeLessThanOrEqual(140)
 		}
-		expect(result.length).toBe(50)
+		expect(result.length).toBe(80)
 	})
