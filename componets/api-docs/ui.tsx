@@ -132,9 +132,16 @@ export function RequestResult({ state }: { state: RequestState }) {
 		)
 	}
 	if (state.status == "error") {
+		const timedOut = state.message.includes("请求超时")
 		return (
-			<Box sx={{ ...RESULT_PLACEHOLDER_SX, borderColor: "error.main" }} role="alert">
-				<Typography variant="caption" color="error.main" sx={{ overflowWrap: "anywhere" }}>
+			<Box
+				sx={{ ...RESULT_PLACEHOLDER_SX, alignItems: "flex-start", flexDirection: "column", borderColor: "error.main" }}
+				role="alert"
+			>
+				<Typography variant="caption" color="error.main" sx={{ fontWeight: 700 }}>
+					{timedOut ? "请求超时" : "请求失败"}
+				</Typography>
+				<Typography variant="caption" color="text.secondary" sx={{ overflowWrap: "anywhere" }}>
 					{state.message}
 				</Typography>
 			</Box>
@@ -160,7 +167,8 @@ export function MethodBadge({ method }: { method: "GET" | "POST" }) {
 				fontSize: "0.68rem",
 				fontWeight: 700,
 				lineHeight: 1.45,
-				color: "primary.dark",
+				color: (theme) =>
+					theme.palette.mode == "dark" ? "primary.main" : "primary.dark",
 				backgroundColor: "brandSoft",
 				fontFamily: MONOSPACE_FONT,
 				flexShrink: 0,

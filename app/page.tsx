@@ -2,9 +2,6 @@ import Index from "@/componets/index"
 import { prefetchDefaultView } from "@/componets/ssr-prefetch"
 
 import packageJson from "../package.json"
-import buildId from "next-build-id"
-import { dirname } from "node:path"
-import { fileURLToPath } from "node:url"
 
 import { Suspense } from "react"
 
@@ -16,10 +13,6 @@ export default async function Home({
 }: {
 	searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
-	// Turbopack 下 __dirname 不可靠，用 import.meta.url 推导（next-build-id 需要真实目录）
-	const dir = dirname(fileURLToPath(import.meta.url))
-	const build = await buildId({ dir, describe: true })
-
 	const params = await searchParams
 	const initial = await prefetchDefaultView(params)
 
@@ -27,7 +20,7 @@ export default async function Home({
 		<main style={{ width: "100%" }}>
 			<Suspense>
 				<Index
-					buildId={build}
+					buildId={process.env.FXBUILD_ID ?? "development"}
 					buildTime={process.env.FXBUILD_TIME ?? ""}
 					version={packageJson.version}
 					initialCurrencies={initial.initialCurrencies}

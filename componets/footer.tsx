@@ -100,7 +100,6 @@ export default function Footer({
 								sx={{
 									fontFamily: "monospace",
 									cursor: "help",
-									opacity: 0.85,
 								}}
 							>
 								后端 {shortBackend}
@@ -119,7 +118,6 @@ export default function Footer({
 							aria-label={`fxrate-web v${version}`}
 							sx={{
 								fontFamily: "monospace",
-								opacity: 0.85,
 								cursor: "help",
 							}}
 						>

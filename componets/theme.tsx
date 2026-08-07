@@ -270,7 +270,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 								props: { variant: "tonal" },
 								style: ({ theme }) => ({
 									backgroundColor: theme.palette.brandSoft,
-									color: theme.palette.primary.dark,
+									// 浅色用 primary.dark；暗色改用 primary.main——dark 下
+									// primary.dark（#6aa5a7）于 brandSoft 上仅 4.01:1，
+									// primary.main（#8fc3c6）达 AA（与矩阵主色惯例一致）
+									color:
+										theme.palette.mode == "dark"
+											? theme.palette.primary.main
+											: theme.palette.primary.dark,
 									"&:hover": {
 										backgroundColor: alpha(
 											theme.palette.primary.main,

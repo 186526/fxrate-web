@@ -136,6 +136,11 @@ export default function CurrencyChooser({
 	const toOption = options.find((o) => o.code == to) ?? null
 
 	const [amountText, setAmountText] = React.useState(String(amount))
+	const parsedAmount = Number(amountText)
+	const amountInvalid =
+		amountText.trim() == "" ||
+		!Number.isFinite(parsedAmount) ||
+		parsedAmount <= 0
 	// 记录最后一次已同步到父组件的值：外部改动 amount（如 URL 变化）时刷新文本，
 	// 用户自己输入时不受影响（输入过程 amount 可能尚未同步）
 	const syncedAmountRef = React.useRef(amount)
@@ -150,10 +155,16 @@ export default function CurrencyChooser({
 	const handleAmountChange = (text: string) => {
 		setAmountText(text)
 		const n = Number(text)
-		if (!Number.isNaN(n) && n > 0) {
+		if (text.trim() != "" && Number.isFinite(n) && n > 0) {
 			syncedAmountRef.current = n
 			onAmountChange(n)
 		}
+	}
+
+	const resetInvalidAmount = () => {
+		if (!amountInvalid) return
+		syncedAmountRef.current = amount
+		setAmountText(String(amount))
 	}
 
 	// 矩阵反向（showTo=false）时金额按各列货币计，而非基准货币 from
@@ -321,6 +332,12 @@ export default function CurrencyChooser({
 					size="small"
 					value={amountText}
 					onChange={(e) => handleAmountChange(e.target.value)}
+					onBlur={resetInvalidAmount}
+					error={amountInvalid}
+					helperText={amountInvalid ? "请输入大于 0 的有效金额" : undefined}
+					slotProps={{
+						formHelperText: amountInvalid ? { role: "alert" } : undefined,
+					}}
 					inputProps={{
 						min: Number.MIN_VALUE,
 						step: "any",

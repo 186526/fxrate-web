@@ -80,7 +80,13 @@ function SkeletonBar({
 
 export function ListTableSkeleton() {
 	return (
-		<TableContainer component={Paper} elevation={1} sx={{ overflow: "auto" }}>
+		<TableContainer
+			component={Paper}
+			elevation={1}
+			sx={{ overflow: "auto" }}
+			role="status"
+			aria-label="正在加载汇率数据"
+		>
 			<Table size="small" sx={{ minWidth: { xs: 640, sm: 720 } }}>
 				<TableHead>
 					<TableRow>
@@ -129,7 +135,13 @@ export function ListTableSkeleton() {
 
 export function MatrixTableSkeleton() {
 	return (
-		<TableContainer component={Paper} elevation={1} sx={{ overflow: "auto" }}>
+		<TableContainer
+			component={Paper}
+			elevation={1}
+			sx={{ overflow: "auto" }}
+			role="status"
+			aria-label="正在加载汇率数据"
+		>
 			<Table size="small" sx={{ minWidth: { xs: 780, sm: 960 } }}>
 				<TableHead>
 					<TableRow>

@@ -75,11 +75,11 @@ interface Column {
 
 const columns: Column[] = [
 	{ key: "name", label: "银行/平台", align: "left", sortable: true },
-	{ key: "buyCash", label: "购钞价", align: "left", sortable: true },
-	{ key: "buyRemit", label: "购汇价", align: "left", sortable: true },
-	{ key: "sellCash", label: "结钞价", align: "left", sortable: true },
-	{ key: "sellRemit", label: "结汇价", align: "left", sortable: true },
-	{ key: "middle", label: "中间价", align: "left", sortable: true },
+	{ key: "buyCash", label: "购钞价", align: "right", sortable: true },
+	{ key: "buyRemit", label: "购汇价", align: "right", sortable: true },
+	{ key: "sellCash", label: "结钞价", align: "right", sortable: true },
+	{ key: "sellRemit", label: "结汇价", align: "right", sortable: true },
+	{ key: "middle", label: "中间价", align: "right", sortable: true },
 	{ key: "updated", label: "更新时间", align: "right" },
 ]
 
@@ -307,7 +307,7 @@ function FXListGrid({
 					toNumber(r.sellCash) != undefined ||
 					toNumber(r.sellRemit) != undefined ||
 					toNumber(r.middle) != undefined
-			).length,
+			),
 		[rows]
 	)
 
@@ -346,8 +346,8 @@ function FXListGrid({
 					sx={{ ml: { xs: 0, sm: "auto" } }}
 				>
 					参与高亮{" "}
-					{rows.filter((r) => !excluded.has(r.source)).length}/
-					{withDataRows} 家
+					{withDataRows.filter((r) => !excluded.has(r.source)).length}/
+					{withDataRows.length} 家
 				</Button>
 				<Tooltip
 					title={rssCopied ? "已复制 RSS 链接" : `复制 RSS 订阅链接（${rssURL(from, to)}）`}
@@ -652,7 +652,7 @@ function FXListGrid({
 									return (
 										<TableCell
 											key={c.key}
-											align="left"
+											align="right"
 											sx={{
 												...NUMERIC_CELL_LAYOUT,
 												fontWeight:

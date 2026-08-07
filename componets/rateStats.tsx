@@ -148,7 +148,9 @@ const MobileContext = React.createContext(false)
 interface SharedTipValue {
 	show: (id: string, content: React.ReactNode, trigger: HTMLElement) => void
 	hide: (id: string) => void
+	registerKeyboardTip: (id: string) => () => void
 	activeId: string | null
+	keyboardTipId: string | null
 	tooltipId: string
 }
 
@@ -170,6 +172,8 @@ export function StatsTipProvider({ children }: { children: React.ReactNode }) {
 		content: React.ReactNode
 		trigger: HTMLElement
 	} | null>(null)
+	const keyboardTipOrderRef = React.useRef<string[]>([])
+	const [keyboardTipId, setKeyboardTipId] = React.useState<string | null>(null)
 	const show = React.useCallback(
 		(id: string, content: React.ReactNode, trigger: HTMLElement) => {
 			setActive({ id, content, trigger })
@@ -179,9 +183,28 @@ export function StatsTipProvider({ children }: { children: React.ReactNode }) {
 	const hide = React.useCallback((id: string) => {
 		setActive((prev) => (prev?.id == id ? null : prev))
 	}, [])
+	const registerKeyboardTip = React.useCallback((id: string) => {
+		const order = keyboardTipOrderRef.current
+		if (!order.includes(id)) order.push(id)
+		setKeyboardTipId((current) => current ?? order[0] ?? null)
+		return () => {
+			const index = order.indexOf(id)
+			if (index >= 0) order.splice(index, 1)
+			setKeyboardTipId((current) =>
+				current == id ? order[0] ?? null : current
+			)
+		}
+	}, [])
 	const value = React.useMemo<SharedTipValue>(
-		() => ({ show, hide, activeId: active?.id ?? null, tooltipId }),
-		[show, hide, active, tooltipId]
+		() => ({
+			show,
+			hide,
+			registerKeyboardTip,
+			activeId: active?.id ?? null,
+			keyboardTipId,
+			tooltipId,
+		}),
+		[show, hide, registerKeyboardTip, active, keyboardTipId, tooltipId]
 	)
 	return (
 		<MobileContext.Provider value={isMobile}>
@@ -230,10 +253,9 @@ export function StatsTipProvider({ children }: { children: React.ReactNode }) {
 
 // 统计信息容器：桌面端 hover 打开 Provider 的共享 Tooltip，移动端（触摸无 hover）点击 Popover 弹窗
 // children 为触发元素（数字单元格）；content 为统计内容。
-// 触发元素统一加 tabIndex=0 保证键盘可达：hover/focus 打开浮层后经
-// aria-describedby 把 content 暴露给屏幕阅读器（不覆盖触发格自身名称）。
-// 移动端弹窗分支额外处理 Enter/Space 键盘激活（span 无原生 button 语义，
-// 仅 tabIndex 不会在按键时触发 onClick）并暴露 aria-haspopup/aria-expanded
+// 统计内容是报价的补充信息，不把每个数字格强制加入 Tab 顺序；否则矩阵会产生
+// 数百个连续停靠点。Provider 按渲染顺序只给第一个 StatsTip 一个键盘入口，
+// 其余格仍保留鼠标/触摸能力，但不会暴露不可从键盘到达的 button 角色。
 export function StatsTip({
 	content,
 	children,
@@ -255,9 +277,10 @@ export function StatsTip({
 }) {
 	const isMobile = React.useContext(MobileContext)
 	const sharedTip = useSharedTip()
+	const registerKeyboardTip = sharedTip.registerKeyboardTip
 	const tipId = React.useId()
 	const [anchor, setAnchor] = React.useState<HTMLElement | null>(null)
-	const focusableChild = React.cloneElement(children, { tabIndex: 0 })
+	const keyboardEnabled = sharedTip.keyboardTipId == tipId
 
 	// 卸载时若本格仍是活动触发格（数据刷新移除行等），关闭共享浮层避免悬空。
 	// hide 是 Provider 的稳定 useCallback：经 ref 持有，cleanup 只依赖 tipId，
@@ -269,11 +292,16 @@ export function StatsTip({
 	React.useEffect(() => {
 		return () => hideTipRef.current(tipId)
 	}, [tipId])
+	React.useEffect(
+		() => registerKeyboardTip(tipId),
+		[registerKeyboardTip, tipId]
+	)
 
 	// 移动端：点击弹窗
 	if (isMobile) {
-		const child = React.cloneElement(focusableChild, {
-			role: "button",
+		const child = React.cloneElement(children, {
+			role: keyboardEnabled ? "button" : undefined,
+			tabIndex: keyboardEnabled ? 0 : undefined,
 			onClick: (e: React.MouseEvent<HTMLElement>) => {
 				setAnchor(e.currentTarget)
 				children.props.onClick?.(e)
@@ -284,8 +312,8 @@ export function StatsTip({
 					setAnchor(e.currentTarget)
 				}
 			},
-			"aria-haspopup": "dialog",
-			"aria-expanded": Boolean(anchor),
+			"aria-haspopup": keyboardEnabled ? "dialog" : undefined,
+			"aria-expanded": keyboardEnabled ? Boolean(anchor) : undefined,
 		})
 		return (
 			<>
@@ -318,7 +346,8 @@ export function StatsTip({
 	// 桌面端：触发格直接传给共享浮层（与移动端弹窗同色彩方案：主题 surface + 边框，
 	// 避免 inverse 白底刺眼）。aria-describedby 关联 Provider 的唯一 Tooltip，
 	// 不覆盖触发格自身名称（交叉路径格带 aria-label，二者叠加为「名称 + 描述」）
-	return React.cloneElement(focusableChild, {
+	return React.cloneElement(children, {
+		tabIndex: keyboardEnabled ? 0 : undefined,
 		onMouseEnter: (e: React.MouseEvent<HTMLElement>) => {
 			sharedTip.show(tipId, content, e.currentTarget)
 		},

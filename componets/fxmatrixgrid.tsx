@@ -54,6 +54,17 @@ const DEFAULT_COMMON_CURRENCIES = [
 	"THB",
 ]
 
+const compareCurrencies = (a: string, b: string): number => {
+	const aIndex = DEFAULT_COMMON_CURRENCIES.indexOf(a)
+	const bIndex = DEFAULT_COMMON_CURRENCIES.indexOf(b)
+	if (aIndex >= 0 || bIndex >= 0) {
+		if (aIndex < 0) return 1
+		if (bIndex < 0) return -1
+		return aIndex - bIndex
+	}
+	return a.localeCompare(b)
+}
+
 const MATRIX_CURRENCIES_KEY = "fxrate-matrix-currencies"
 
 // 窄屏宽度规则：来源列保证最小宽度（配合首列 sticky 截断长名）；
@@ -75,6 +86,13 @@ function getName(name: string): string {
 }
 
 type CellValue = number | string | boolean
+
+type MatrixCell = Omit<RatesMatrixCell, "middle"> & {
+	middle?: RatesMatrixCell["middle"]
+}
+
+type MatrixRow = { [currency: string]: MatrixCell }
+type MatrixDisplayData = { [source: string]: MatrixRow }
 
 type PriceType = "middle" | "cash" | "remit"
 
@@ -102,7 +120,7 @@ const formatValue = (v: CellValue | undefined): string =>
 	typeof v == "number" || typeof v == "string" ? String(v) : "—"
 
 const cellOf = (
-	cell: RatesMatrixCell | undefined,
+	cell: MatrixCell | undefined,
 	type: PriceType
 ): CellValue | undefined => {
 	if (!cell) return undefined
@@ -137,29 +155,32 @@ const orientMatrixRowPaths = (
 // cash/remit/path 为 undefined（getRatesMatrix 行为），直接用 ?? 回落 a
 // 的补查值（false/0/字符串等合法值保留），避免整格浅合并丢字段
 const mergeCell = (
-	a: RatesMatrixCell | undefined,
-	b: RatesMatrixCell | undefined
-): RatesMatrixCell => ({
-	middle: b?.middle ?? a?.middle ?? 0,
-	cash: b?.cash ?? a?.cash,
-	remit: b?.remit ?? a?.remit,
-	path: b?.path ?? a?.path,
-	alias: b?.alias ?? a?.alias,
-	updated: b?.updated ?? a?.updated,
-})
+	a: MatrixCell | undefined,
+	b: MatrixCell | undefined
+): MatrixCell => {
+	const middle = b?.middle ?? a?.middle
+	return {
+		...(middle != undefined ? { middle } : {}),
+		cash: b?.cash ?? a?.cash,
+		remit: b?.remit ?? a?.remit,
+		path: b?.path ?? a?.path,
+		alias: b?.alias ?? a?.alias,
+		updated: b?.updated ?? a?.updated,
+	}
+}
 
 // 单元格字段级合并：同一来源同一货币按字段 merge，b 对重叠字段优先、
 // a 独有字段（path/alias/updated 等）保留。主数据与单独补查行可能对同一
 // 格各持有部分字段（如主数据只有 middle、补查带回 cash/remit/path），
 // 浅合并整格会丢字段，这里逐字段合并
 const mergeCellRows = (
-	a: RatesMatrix[string] | undefined,
-	b: RatesMatrix[string] | undefined
-): RatesMatrix[string] => {
+	a: MatrixRow | undefined,
+	b: MatrixRow | undefined
+): MatrixRow => {
 	if (!a) return b ?? {}
 	if (!b) return a
 	const currencyKeys = new Set([...Object.keys(a), ...Object.keys(b)])
-	const merged: RatesMatrix[string] = {}
+	const merged: MatrixRow = {}
 	for (const c of currencyKeys) {
 		merged[c] = mergeCell(a[c], b[c])
 	}
@@ -230,7 +251,9 @@ function FXMatrixGrid({
 				currencySet.has(c)
 			)
 		)
-		return Array.from(currencySet).filter((c) => activeSet.has(c))
+		return Array.from(currencySet)
+			.filter((c) => activeSet.has(c))
+			.sort(compareCurrencies)
 	}, [data, from, enabled])
 	const visibleCurrenciesKey = React.useMemo(
 		() => [...baseCurrencies].sort().join(","),
@@ -245,7 +268,7 @@ function FXMatrixGrid({
 	// 运行，新参数也绝不渲染旧行），异步响应写回也要求 key 一致
 	const [extraRows, setExtraRows] = React.useState<{
 		key: string
-		data: RatesMatrix
+		data: MatrixDisplayData
 	}>({ key: rowParamsKey, data: {} })
 	// 每个额外行来源的加载状态：自动补查失败（error）可区分、可重试
 	const [sourceStatus, setSourceStatus] = React.useState<{
@@ -259,7 +282,7 @@ function FXMatrixGrid({
 		// keyed 快照：extraRows 只在其记录时的参数 key 下参与合并，旧参数数据
 		// 绝不渲染进新参数表格
 		if (extraRows.key != rowParamsKey) return data
-		const merged: RatesMatrix = {}
+		const merged: MatrixDisplayData = {}
 		const sourceKeys = new Set([
 			...Object.keys(extraRows.data),
 			...Object.keys(data),
@@ -310,24 +333,14 @@ function FXMatrixGrid({
 				currencySet.add(c)
 			}
 		}
-		const allCurrencyKeys = Array.from(currencySet)
+		const allCurrencyKeys = Array.from(currencySet).sort(compareCurrencies)
 
 		const activeSet = new Set(
 			enabled ?? DEFAULT_COMMON_CURRENCIES.filter((c) =>
 				currencySet.has(c)
 			)
 		)
-		const currencyKeys = allCurrencyKeys
-			.filter((c) => activeSet.has(c))
-			.sort(
-				(a, b) =>
-					(a in DEFAULT_COMMON_CURRENCIES
-						? DEFAULT_COMMON_CURRENCIES.indexOf(a)
-						: 999) -
-					(b in DEFAULT_COMMON_CURRENCIES
-						? DEFAULT_COMMON_CURRENCIES.indexOf(b)
-						: 999)
-			)
+		const currencyKeys = allCurrencyKeys.filter((c) => activeSet.has(c))
 
 		const best: { [currency: string]: number } = {}
 		for (const c of currencyKeys) {
@@ -402,8 +415,35 @@ function FXMatrixGrid({
 					)
 				}
 			} catch (e) {
-				// 取消（参数已变）与过期响应都不写错误状态；其余失败可区分可重试
-				if (isAbortError(e) || rowParamsRef.current != requestKey) return
+				if (isAbortError(e)) {
+					// 参数已变的取消（key 过期）静默忽略：rowParamsKey 变化 effect 已
+					// 统一清空状态与去重，无需在此处理。参数未变的取消（StrictMode
+					// 双挂载 cleanup 在 client.batch 前提前 abort）不得留下 loading
+					// 状态与 attempted 去重记录——复位两者（源状态删除 + 去重移除），
+					// 让 auto-load effect 重新评估并重试；重试后的真实空响应/失败
+					// 随后正常落入 error 可重试状态，不再被 loading 卡死
+					if (rowParamsRef.current == requestKey) {
+						setSourceStatus((prev) => {
+							const next = { ...prev }
+							delete next[source]
+							return next
+						})
+						setSourceError((prev) => {
+							if (!(source in prev)) return prev
+							const next = { ...prev }
+							delete next[source]
+							return next
+						})
+						const attempted = autoAttemptedRef.current[requestKey]
+						if (attempted) {
+							autoAttemptedRef.current[requestKey] =
+								attempted.filter((s) => s != source)
+						}
+					}
+					return
+				}
+				// 过期响应（参数已变）不写错误状态；其余失败可区分可重试
+				if (rowParamsRef.current != requestKey) return
 				setSourceStatus((prev) => ({ ...prev, [source]: "error" }))
 				setSourceError((prev) => ({
 					...prev,
@@ -460,6 +500,7 @@ function FXMatrixGrid({
 
 	React.useEffect(() => {
 		if (!sourceCurrencies || Object.keys(data).length == 0) return
+		if (currencies.length == 0) return
 		const attempted = autoAttemptedRef.current[rowParamsKey] ?? []
 		for (const s of Object.keys(sourceCurrencies)) {
 			if (slowSources.includes(s)) continue
@@ -479,7 +520,15 @@ function FXMatrixGrid({
 		// 主数据/来源列表/请求 key/状态变化时重新评估（attempted 防重复；
 		// 失败后不自动重试——error 不被 attempted 豁免，但本 effect 只在依赖
 		// 变化时运行，不会造成同一参数下无限重试）
-	}, [data, sourceCurrencies, slowSources, rowParamsKey, handleLoadSource, sourceStatus])
+	}, [
+		data,
+		sourceCurrencies,
+		slowSources,
+		rowParamsKey,
+		handleLoadSource,
+		sourceStatus,
+		currencies.length,
+	])
 
 	// 交叉汇率补查：开启时，对可见货币列中"该源支持但直连缺失"的格
 	// 用 getSourceMatrixRow(bfs=true) 补查过桥汇率，合并进 extraRows
@@ -709,84 +758,85 @@ function FXMatrixGrid({
 						（{priceTypeLabels[priceType]}）
 					</Typography>
 					<Box
-					sx={{
-						display: "flex",
-						alignItems: "center",
-						flexWrap: "wrap",
-						justifyContent: "flex-end",
-						gap: 0.75,
-						ml: { xs: 0, sm: "auto" },
-					}}
-				>
-					<Button
-						size="small"
-						variant="outlined"
-						color="inherit"
-						startIcon={<EmojiEventsIcon />}
-						onClick={(e) => {
-							setBestSearch("")
-							setBestSourceAnchor(e.currentTarget)
-						}}
-					>
-						参与高亮{" "}
-						{visibleSources.filter((s) => !excluded.has(s)).length}/
-						{visibleSources.length} 家
-					</Button>
-					<Button
-						size="small"
-						variant="outlined"
-						color="inherit"
-						startIcon={<ChecklistIcon />}
-						onClick={(e) => {
-							setPickerSearch("")
-							setPickerAnchor(e.currentTarget)
-						}}
-					>
-						显示货币 {currencies.length}/{allCurrencies.length}
-					</Button>
-					<ToggleButtonGroup
-						size="small"
-						exclusive
-						value={priceType}
-						onChange={(_, v: PriceType | null) => {
-							if (v) setPriceType(v)
-						}}
 						sx={{
-							width: { xs: "100%", sm: "auto" },
-							borderRadius: 9999,
-							p: 0.5,
-							bgcolor: "action.hover",
-							border: "1px solid",
-							borderColor: "divider",
-							"& .MuiToggleButtonGroup-grouped": {
-								border: 0,
-								borderRadius: 9999,
-								flex: { xs: 1, sm: "initial" },
-								px: { xs: 1.5, sm: 2 },
-								py: 0.5,
-								fontSize: { xs: 12, sm: 13 },
-								fontWeight: 500,
-								color: "text.secondary",
-								// 选中项：暗色 primary.dark 于 brandSoft 仅 3.4:1，须换 primary.main（4.8:1）
-								"&.Mui-selected": {
-									bgcolor: "brandSoft",
-									color: (t: { palette: { mode: string } }) =>
-										t.palette.mode == "dark"
-											? "primary.main"
-											: "primary.dark",
-									fontWeight: 700,
-									boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
-								},
-							},
+							display: "flex",
+							alignItems: "center",
+							flexWrap: "wrap",
+							justifyContent: "flex-end",
+							gap: 0.75,
+							ml: { xs: 0, sm: "auto" },
 						}}
 					>
-						<ToggleButton value="middle">中间价</ToggleButton>
-						<ToggleButton value="cash">现钞</ToggleButton>
-						<ToggleButton value="remit">现汇</ToggleButton>
-					</ToggleButtonGroup>
+						<Button
+							size="small"
+							variant="outlined"
+							color="inherit"
+							startIcon={<EmojiEventsIcon />}
+							onClick={(e) => {
+								setBestSearch("")
+								setBestSourceAnchor(e.currentTarget)
+							}}
+						>
+							参与高亮{" "}
+							{visibleSources.filter((s) => !excluded.has(s)).length}/
+							{visibleSources.length} 家
+						</Button>
+						<Button
+							size="small"
+							variant="outlined"
+							color="inherit"
+							startIcon={<ChecklistIcon />}
+							onClick={(e) => {
+								setPickerSearch("")
+								setPickerAnchor(e.currentTarget)
+							}}
+						>
+							显示货币 {currencies.length}/{allCurrencies.length}
+						</Button>
+						<ToggleButtonGroup
+							size="small"
+							exclusive
+							value={priceType}
+							aria-label="报价类型"
+							onChange={(_, v: PriceType | null) => {
+								if (v) setPriceType(v)
+							}}
+							sx={{
+								width: { xs: "100%", sm: "auto" },
+								borderRadius: 9999,
+								p: 0.5,
+								bgcolor: "action.hover",
+								border: "1px solid",
+								borderColor: "divider",
+								"& .MuiToggleButtonGroup-grouped": {
+									border: 0,
+									borderRadius: 9999,
+									flex: { xs: 1, sm: "initial" },
+									px: { xs: 1.5, sm: 2 },
+									py: 0.5,
+									fontSize: { xs: 12, sm: 13 },
+									fontWeight: 500,
+									color: "text.secondary",
+									// 选中项：暗色 primary.dark 于 brandSoft 仅 3.4:1，须换 primary.main（4.8:1）
+									"&.Mui-selected": {
+										bgcolor: "brandSoft",
+										color: (t: { palette: { mode: string } }) =>
+											t.palette.mode == "dark"
+												? "primary.main"
+												: "primary.dark",
+										fontWeight: 700,
+										boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
+									},
+								},
+							}}
+						>
+							<ToggleButton value="middle">中间价</ToggleButton>
+							<ToggleButton value="cash">现钞</ToggleButton>
+							<ToggleButton value="remit">现汇</ToggleButton>
+						</ToggleButtonGroup>
 					</Box>
 				</Box>
-			<Popover
+				<Popover
 				open={Boolean(pickerAnchor)}
 				anchorEl={pickerAnchor}
 				onClose={() => setPickerAnchor(null)}
@@ -968,6 +1018,7 @@ function FXMatrixGrid({
 								<TableCell
 									key={c}
 									align="right"
+									sortDirection={sortKey == c ? sortDir : false}
 									sx={{
 										py: { xs: 0.75, sm: 1 },
 										px: { xs: 1, sm: 1.5 },
@@ -999,6 +1050,13 @@ function FXMatrixGrid({
 						</TableRow>
 					</TableHead>
 					<TableBody>
+						{currencies.length == 0 && (
+							<TableRow>
+								<TableCell colSpan={1} align="center" sx={{ py: 4, color: "text.secondary" }}>
+									未选择显示货币，请通过“显示货币”选择至少一种货币
+								</TableCell>
+							</TableRow>
+						)}
 						{visibleSources.map((s, idx) => {
 							// 该源各货币最新更新时间：任一 cell 超过 STALE_MS 视为整行可能不准确
 							const rowUpdated = updatedBySource[s]
@@ -1231,7 +1289,7 @@ function FXMatrixGrid({
 								</TableRow>
 							)
 						})}
-						{slowSources
+						{currencies.length > 0 && slowSources
 							.filter(
 								(s) =>
 									extraRows.key == rowParamsKey &&
@@ -1289,7 +1347,7 @@ function FXMatrixGrid({
 									</TableCell>
 								</TableRow>
 							))}
-						{Object.keys(sourceStatus)
+						{currencies.length > 0 && Object.keys(sourceStatus)
 							.filter(
 								(s) =>
 									extraRows.key == rowParamsKey &&
