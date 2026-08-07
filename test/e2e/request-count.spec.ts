@@ -1,13 +1,9 @@
 import { expect, Page, test } from "@playwright/test"
 import { mockJsonRpcRoutes } from "./helpers/mockJsonRpc"
-
-const MOCK_PORT = Number(process.env.MOCK_PORT || 8188)
-const MOCK = `http://127.0.0.1:${MOCK_PORT}`
-
-async function mockCounters() {
-	const res = await fetch(`${MOCK}/__counters`)
-	return (await res.json()) as { batches: number; methods: Record<string, number> }
-}
+import {
+	getMockServerCounters,
+	resetMockServer,
+} from "./helpers/mockServer"
 
 function collectPageErrors(page: Page) {
 	const errors: string[] = []
@@ -29,7 +25,7 @@ function collectPageErrors(page: Page) {
 //   浏览器 tools LRU 命中 → 数据零新增。
 test.describe("request-count", () => {
 	test.beforeEach(async () => {
-		await fetch(`${MOCK}/__reset`)
+		await resetMockServer()
 	})
 
 	test("SSR 首屏：浏览器 hydration 零货币列表/版本请求；切矩阵 +6；切回 pair 数据零新增", async ({
@@ -38,8 +34,24 @@ test.describe("request-count", () => {
 		const mock = mockJsonRpcRoutes(page)
 		const getErrors = collectPageErrors(page)
 
-		await page.goto("/")
+		// Playwright webServer 的 readiness probe 会访问默认 /（precision=4）并预热
+		// 服务端 SWR/currencies cache。用独立 precision=3 key，确保本次 document
+		// 请求确实执行 SSR getCurrenciesDetails，而不是误把缓存命中当成 SSR 覆盖。
+		await page.goto("/?precision=3")
 		await expect(page.getByText("bankA").first()).toBeVisible({ timeout: 60_000 })
+
+		// 服务端计数来自真实 mock backend（浏览器 /api/fxrate 已被 page.route 拦截，
+		// 不会污染这里）：SSR 至少包含独立 info + 3 个快源双向的 6 次 getFXRate。
+		// 货币列表可能已被 readiness probe 写入进程级 currencies cache，因此不把
+		// listCurrencies 计数误写成必须发生的契约。
+		await expect
+			.poll(async () => (await getMockServerCounters()).methods.getFXRate ?? 0, {
+				timeout: 20_000,
+			})
+			.toBe(6)
+		const ssrCounters = await getMockServerCounters()
+		expect(ssrCounters.methods.instanceInfo ?? 0).toBeGreaterThanOrEqual(1)
+		expect(ssrCounters.methods.getFXRate).toBe(6)
 
 		// 浏览器层初始加载：2 条批量（主批量 + visa 后台 = 8 个 getFXRate），
 		// 且 instanceInfo/listCurrencies 恒为 0 —— SSR 已随 RSC 提供，浏览器不重复拉

@@ -1,12 +1,10 @@
 import { expect, Page, test } from "@playwright/test"
 import AxeBuilder from "@axe-core/playwright"
 import { mockJsonRpcRoutes } from "./helpers/mockJsonRpc"
-
-function collectPageErrors(page: Page) {
-	const errors: string[] = []
-	page.on("pageerror", (e) => errors.push(String(e)))
-	return () => errors
-}
+import {
+	collectPageErrors,
+	collectStaticResource404s,
+} from "./helpers/pageDiagnostics"
 
 // axe 节点白名单：只放行"既有设计层"的精确节点（rule id + target/html 都须匹配），
 // 一个违规若含任何未白名单节点仍会失败——gate 不会随名单整体放宽。
@@ -25,8 +23,16 @@ const WHITELIST: {
 	// RelativeTime"更新时间"（aria-label 出现在 axe target 里）
 	{ id: "color-contrast", target: /数据更新时间/, html: /数据更新时间/ },
 	// footer 两个版本 tooltip caption（按 aria-label 在 html 中匹配）
-	{ id: "color-contrast", html: /aria-label="后端 fxrate@/ },
-	{ id: "color-contrast", html: /aria-label="fxrate-web v/ },
+	{
+		id: "color-contrast",
+		target: /后端 fxrate@/,
+		html: /aria-label="后端 fxrate@/,
+	},
+	{
+		id: "color-contrast",
+		target: /fxrate-web v/,
+		html: /aria-label="fxrate-web v/,
+	},
 ]
 
 function nodeWhitelisted(
@@ -40,9 +46,15 @@ function nodeWhitelisted(
 	return WHITELIST.some(
 		(w) =>
 			w.id == id &&
-			((w.target && w.target.test(targetText)) ||
-				(w.html && w.html.test(node.html)))
+			(w.target == undefined || w.target.test(targetText)) &&
+			(w.html == undefined || w.html.test(node.html))
 	)
+}
+
+async function enableDarkMode(page: Page): Promise<void> {
+	await page.addInitScript(() => {
+		window.localStorage.setItem("fxrate-theme", "dark")
+	})
 }
 
 async function assertNoSeriousViolations(page: Page) {
@@ -62,11 +74,33 @@ async function assertNoSeriousViolations(page: Page) {
 }
 
 test.describe("accessibility smoke", () => {
+	test("白名单条目同时声明 target/html 时必须全部匹配，单侧命中不得放行", () => {
+		const matchingNode = {
+			target: ['[aria-label="数据更新时间：刚刚"]'],
+			html: '<span aria-label="数据更新时间：刚刚">刚刚</span>',
+		}
+		expect(nodeWhitelisted("color-contrast", matchingNode)).toBe(true)
+		expect(
+			nodeWhitelisted("color-contrast", {
+				...matchingNode,
+				html: "<span>刚刚</span>",
+			})
+		).toBe(false)
+		expect(
+			nodeWhitelisted("color-contrast", {
+				...matchingNode,
+				target: [".unrelated-node"],
+			})
+		).toBe(false)
+		expect(nodeWhitelisted("aria-input-field-name", matchingNode)).toBe(false)
+	})
+
 	test("单对视图无 axe serious+critical 违规（白名单仅限既有对比度节点）", async ({
 		page,
 	}) => {
 		mockJsonRpcRoutes(page)
 		const getErrors = collectPageErrors(page)
+		const getStatic404s = collectStaticResource404s(page)
 		await page.goto("/")
 		await expect(page.getByText("bankA").first()).toBeVisible({
 			timeout: 60_000,
@@ -74,11 +108,13 @@ test.describe("accessibility smoke", () => {
 
 		await assertNoSeriousViolations(page)
 		expect(getErrors()).toEqual([])
+		expect(getStatic404s()).toEqual([])
 	})
 
 	test("矩阵视图无 axe serious+critical 违规", async ({ page }) => {
 		mockJsonRpcRoutes(page)
 		const getErrors = collectPageErrors(page)
+		const getStatic404s = collectStaticResource404s(page)
 		await page.goto("/matrix?from=CNY&amount=100&precision=4")
 		await expect(page.getByText(/以 CNY 为基准/)).toBeVisible({
 			timeout: 60_000,
@@ -89,7 +125,30 @@ test.describe("accessibility smoke", () => {
 
 		await assertNoSeriousViolations(page)
 		expect(getErrors()).toEqual([])
+		expect(getStatic404s()).toEqual([])
 	})
+
+	for (const view of ["pair", "matrix"] as const) {
+		test(`暗色模式 ${view == "pair" ? "单对" : "矩阵"}视图无 axe serious+critical 违规`, async ({
+			page,
+		}) => {
+			await enableDarkMode(page)
+			mockJsonRpcRoutes(page)
+			const getErrors = collectPageErrors(page)
+			const getStatic404s = collectStaticResource404s(page)
+			await page.goto(
+				view == "pair" ? "/" : "/matrix?from=CNY&amount=100&precision=4"
+			)
+			await expect(page.locator("html")).toHaveAttribute("data-theme", "dark")
+			await expect(page.getByText("bankA").first()).toBeVisible({
+				timeout: 60_000,
+			})
+
+			await assertNoSeriousViolations(page)
+			expect(getErrors()).toEqual([])
+			expect(getStatic404s()).toEqual([])
+		})
+	}
 
 	for (const width of [320, 360]) {
 		for (const view of ["pair", "matrix"] as const) {
@@ -99,6 +158,7 @@ test.describe("accessibility smoke", () => {
 				await page.setViewportSize({ width, height: 720 })
 				mockJsonRpcRoutes(page)
 				const getErrors = collectPageErrors(page)
+				const getStatic404s = collectStaticResource404s(page)
 				await page.goto(
 					view == "pair" ? "/" : "/matrix?from=CNY&amount=100&precision=4"
 				)
@@ -250,6 +310,7 @@ test.describe("accessibility smoke", () => {
 					contentType: "image/png",
 				})
 				expect(getErrors()).toEqual([])
+				expect(getStatic404s()).toEqual([])
 			})
 		}
 	}
