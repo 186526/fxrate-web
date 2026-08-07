@@ -315,9 +315,10 @@ export default function Index({
 	const [matrix, setMatrix] = React.useState<RatesMatrix | null>(
 		initialMatrix ?? null
 	)
-	// 矩阵数据拉取时间：header"更新于"在矩阵视图下显示矩阵数据的新鲜度
-	const [matrixFetchedAt, setMatrixFetchedAt] = React.useState<Date | null>(
-		null
+	// 服务端/调用方传入的初始矩阵视为本次挂载时已取得；同一 Date 复用于
+	// cache/snapshot，避免两个容器的更新时间产生毫秒级偏差。
+	const [initialMatrixFetchedAt] = React.useState<Date | null>(() =>
+		initialMatrix ? new Date() : null
 	)
 	const [loading, setLoading] = React.useState(!initialResult)
 	const [matrixLoading, setMatrixLoading] = React.useState(
@@ -328,6 +329,7 @@ export default function Index({
 	// 全局加载错误（货币列表等基础设施）与视图级错误（单对/矩阵拉取）分离，
 	// 避免一个视图的失败污染另一个视图的显示
 	const [loadError, setLoadError] = React.useState<string | null>(null)
+	const [currenciesLoadAttempt, setCurrenciesLoadAttempt] = React.useState(0)
 	const [pairError, setPairError] = React.useState<string | null>(null)
 	const [matrixError, setMatrixError] = React.useState<string | null>(null)
 	const [backendVersion, setBackendVersion] = React.useState(
@@ -474,6 +476,7 @@ export default function Index({
 		key: string
 		data: RatesMatrix
 		reverse: boolean
+		fetchedAt: Date
 	} | null>(
 		initialMatrix
 			? {
@@ -485,6 +488,7 @@ export default function Index({
 					),
 					data: initialMatrix,
 					reverse: matrixReverse,
+					fetchedAt: initialMatrixFetchedAt as Date,
 			  }
 			: null
 	)
@@ -509,6 +513,7 @@ export default function Index({
 		key: string
 		data: RatesMatrix
 		reverse: boolean
+		fetchedAt: Date
 	} | null>(
 		initialMatrix
 			? {
@@ -520,6 +525,7 @@ export default function Index({
 					),
 					data: initialMatrix,
 					reverse: matrixReverse,
+					fetchedAt: initialMatrixFetchedAt as Date,
 			  }
 			: null
 	)
@@ -530,6 +536,7 @@ export default function Index({
 		let cancelled = false
 		;(async () => {
 			try {
+				setLoadError(null)
 				// info() 须在 showCurrencyAllRates 之后串行（后者内部开启 batch，
 				// 并行的 info() 会被吞进批量队列拿不到结果）
 				// 5s 超时降级：慢源（上游抓取 30s 超时）不应拖住首屏
@@ -538,18 +545,23 @@ export default function Index({
 					5000
 				)
 				if (cancelled) return
-				if (!cur) {
+				if (!cur || Object.keys(cur).length == 0) {
 					if (!cancelled) setLoadError("数据加载超时，请稍后刷新重试")
 					return
 				}
-				const info = await withTimeout(
-					Promise.resolve(FXRate.info()),
-					5000
-				)
-				if (cancelled) return
 				setCurrencies(cur)
-				if (info) setBackendVersion((info as infoResponse).version)
 				setLoadError(null)
+				try {
+					const info = await withTimeout(
+						Promise.resolve(FXRate.info()),
+						5000
+					)
+					if (!cancelled && info) {
+						setBackendVersion((info as infoResponse).version)
+					}
+				} catch {
+					// 版本信息是可选元数据；报价基础数据已可用时不阻断页面。
+				}
 			} catch (e) {
 				if (!cancelled) {
 					setLoadError(
@@ -561,7 +573,7 @@ export default function Index({
 		return () => {
 			cancelled = true
 		}
-	}, [])
+	}, [initialCurrencies, currenciesLoadAttempt])
 
 	const allCurrencies = React.useMemo(() => {
 		if (!currencies) return []
@@ -608,9 +620,14 @@ export default function Index({
 						}
 					} else {
 						// 正常成功刷新：快源行本次未返回（失败/已下线）即视为陈旧移除；
-						// 仅保留旧慢源行兜底（慢源后台批未归或失败时仍显示上次数据）
+						// 慢源仅在后台未归或请求失败时保留；批次成功完成但未返回报价时
+						// 必须移除旧慢源行，不能无限展示已经失效的 Visa 数据。
 						for (const row of existing) {
-							if (SLOW_SOURCES.has(row.name)) {
+							if (
+								SLOW_SOURCES.has(row.name) &&
+								(r.slowSourcesState == "pending" ||
+									r.slowSourcesState == "failed")
+							) {
 								mergedByName.set(row.name, row)
 							}
 						}
@@ -671,7 +688,7 @@ export default function Index({
 
 	// 参数/视图变化时立即作废矩阵进行中的请求代际，防止陈旧响应
 	// （旧基准/金额/精度/方向请求在 300ms 防抖窗口内完成）落地
-	// 污染 matrixCacheRef/matrix/matrixFetchedAt/loading/error；
+	// 污染 matrixCacheRef/matrix/matrixSnapshot/loading/error；
 	// 同时 abort 在途请求（与单对视图独立，互不影响）
 	React.useEffect(() => {
 		matrixReqRef.current++
@@ -741,14 +758,20 @@ export default function Index({
 						reqId == matrixReqRef.current &&
 						activeMatrixKeyRef.current == key
 					) {
+						const fetchedAt = new Date()
 						matrixCacheRef.current = {
 							key,
 							data,
 							reverse: matrixReverse,
+							fetchedAt,
 						}
-						setMatrixSnapshot({ key, data, reverse: matrixReverse })
+						setMatrixSnapshot({
+							key,
+							data,
+							reverse: matrixReverse,
+							fetchedAt,
+						})
 						setMatrix(data)
-						setMatrixFetchedAt(new Date())
 						setMatrixLoading(false)
 						setMatrixError(null)
 					}
@@ -774,17 +797,27 @@ export default function Index({
 		if (view != "matrix" || !currencies) return
 		// 切回本视图时立即恢复上次数据，不等防抖，避免白屏
 		const cached = matrixCacheRef.current
-		if (
-			cached &&
-			cached.key ==
-				matrixViewCacheKey(matrixBase, amount, precision, matrixReverse)
-		) {
+		if (cached && cached.key == activeMatrixKey) {
 			setMatrix(cached.data)
 			setMatrixLoading(false)
+		} else {
+			// 从单对视图首次切入矩阵时，fetchMatrix 尚在 300ms 防抖窗口；
+			// 立即进入加载态，避免短暂闪出“暂无矩阵数据”。
+			setMatrixLoading(true)
 		}
 		const timer = setTimeout(() => fetchMatrix(false), 300)
 		return () => clearTimeout(timer)
-	}, [view, fetchMatrix])
+	}, [view, currencies, activeMatrixKey, fetchMatrix])
+
+	// 矩阵自动刷新与单对视图保持一致：仅页面可见时每 60s 强制重拉。
+	React.useEffect(() => {
+		if (!currencies || view != "matrix") return
+		const interval = setInterval(() => {
+			if (document.visibilityState != "visible") return
+			fetchMatrix(true)
+		}, 60000)
+		return () => clearInterval(interval)
+	}, [currencies, fetchMatrix, view])
 
 	// 卸载时取消仍在途的请求（路由切换/组件卸载），避免陈旧响应落地与网络浪费
 	React.useEffect(() => {
@@ -851,10 +884,11 @@ export default function Index({
 			: null
 	const visiblePairLoading =
 		loading || (view == "pair" && result != null && visiblePair == null)
-	const visibleMatrix =
+	const visibleMatrixSnapshot =
 		matrixSnapshot != null && matrixSnapshot.key == activeMatrixKey
-			? matrixSnapshot.data
+			? matrixSnapshot
 			: null
+	const visibleMatrix = visibleMatrixSnapshot?.data ?? null
 	const visibleMatrixLoading =
 		matrixLoading ||
 		(view == "matrix" && matrix != null && visibleMatrix == null)
@@ -865,14 +899,14 @@ export default function Index({
 			: hasMatrixQuotes(visibleMatrix)
 	const lastUpdated = React.useMemo(() => {
 		if (view == "matrix") {
-			return visibleMatrix == null ? null : matrixFetchedAt
+			return visibleMatrixSnapshot?.fetchedAt ?? null
 		}
 		if (!visiblePair || visiblePair.length == 0) return null
 		return visiblePair.reduce(
 			(max, r) => (r.updated > max ? r.updated : max),
 			visiblePair[0].updated
 		)
-	}, [view, visiblePair, visibleMatrix, matrixFetchedAt])
+	}, [view, visiblePair, visibleMatrixSnapshot])
 
 	const { mode, toggle } = useThemeMode()
 
@@ -1248,7 +1282,22 @@ export default function Index({
 				}}
 			>
 				{loadError ? (
-					<Alert severity="error">{loadError}</Alert>
+					<Alert
+						severity="error"
+						action={
+							<Button
+								color="inherit"
+								size="small"
+								onClick={() =>
+									setCurrenciesLoadAttempt((attempt) => attempt + 1)
+								}
+							>
+								重试
+							</Button>
+						}
+					>
+						{loadError}
+					</Alert>
 				) : (
 					<>
 						<CurrencyChooser

@@ -10,6 +10,15 @@ export type RequestState =
 export type RequestTask = (signal: AbortSignal) => Promise<string>
 export type StateListener = (state: RequestState) => void
 
+export const API_REQUEST_TIMEOUT_MS = 10000
+
+export class ApiRequestTimeoutError extends Error {
+	constructor(timeoutMs: number) {
+		super(`请求超时（${Math.round(timeoutMs / 1000)} 秒），请稍后重试`)
+		this.name = "TimeoutError"
+	}
+}
+
 interface RequestSlot {
 	generation: number
 	timer: ReturnType<typeof setTimeout> | null
@@ -26,6 +35,32 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error)
 }
 
+async function fetchWithTimeout(
+	input: RequestInfo | URL,
+	init: RequestInit,
+	signal: AbortSignal,
+	timeoutMs = API_REQUEST_TIMEOUT_MS
+): Promise<Response> {
+	if (signal.aborted) throw new DOMException("Aborted", "AbortError")
+	const controller = new AbortController()
+	let timedOut = false
+	const abortFromCaller = () => controller.abort(signal.reason)
+	signal.addEventListener("abort", abortFromCaller, { once: true })
+	const timer = setTimeout(() => {
+		timedOut = true
+		controller.abort()
+	}, timeoutMs)
+	try {
+		return await fetch(input, { ...init, signal: controller.signal })
+	} catch (error) {
+		if (timedOut) throw new ApiRequestTimeoutError(timeoutMs)
+		throw error
+	} finally {
+		clearTimeout(timer)
+		signal.removeEventListener("abort", abortFromCaller)
+	}
+}
+
 async function responseText(response: Response, maxLength: number | null = 4000): Promise<string> {
 	const text = await response.text()
 	if (!response.ok) throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`)
@@ -33,10 +68,9 @@ async function responseText(response: Response, maxLength: number | null = 4000)
 }
 
 export async function fetchRest(path: string, signal: AbortSignal): Promise<string> {
-	const response = await fetch(`/api/rest${path}`, {
+	const response = await fetchWithTimeout(`/api/rest${path}`, {
 		cache: "no-store",
-		signal,
-	})
+	}, signal)
 	return responseText(response)
 }
 
@@ -45,13 +79,12 @@ export async function fetchRpc(
 	signal: AbortSignal,
 	maxLength: number | null = 4000
 ): Promise<string> {
-	const response = await fetch("/api/fxrate", {
+	const response = await fetchWithTimeout("/api/fxrate", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(body),
 		cache: "no-store",
-		signal,
-	})
+	}, signal)
 	return responseText(response, maxLength)
 }
 
@@ -109,10 +142,9 @@ function isBackendMeta(value: unknown): value is BackendMeta {
 }
 
 export async function fetchBackendMeta(signal: AbortSignal): Promise<BackendMeta> {
-	const response = await fetch("/api/backend-meta", {
+	const response = await fetchWithTimeout("/api/backend-meta", {
 		cache: "no-store",
-		signal,
-	})
+	}, signal)
 	const text = await responseText(response)
 	const value: unknown = JSON.parse(text)
 	if (!isBackendMeta(value)) throw new Error("后端地址响应结构无效")

@@ -114,9 +114,17 @@ export function ratesPageURL(source: string): string | undefined {
 	return sourceRatesURL[source]
 }
 
-// RSS 订阅链接：后端提供 /rss/:from/:to Atom feed（origin 取自 API 端点，兼容本地后端）
+// RSS 订阅链接：浏览器经同源 /api/rest 代理访问，避免把 JSON-RPC 的
+// /api/fxrate 端点 origin 直接拼成不存在的前端 /rss 路由。
 export function rssURL(from: string, to: string): string {
-	return `${getFXRateClient().endpoint.origin}/rss/${from}/${to}`
+	const endpoint = getFXRateClient().endpoint
+	const restPrefix = endpoint.pathname.replace(/\/+$/, "") == "/api/fxrate"
+		? "/api/rest"
+		: ""
+	return new URL(
+		`${restPrefix}/rss/${encodeURIComponent(from)}/${encodeURIComponent(to)}`,
+		endpoint.origin
+	).toString()
 }
 
 // 数据请求超时阈值（默认）：超过则放弃等待，让调用方降级处理（如客户端首屏不被慢后端拖住）
@@ -126,10 +134,27 @@ export async function withTimeout<T>(
 	p: Promise<T>,
 	ms = DEFAULT_TIMEOUT_MS
 ): Promise<T | null> {
-	return Promise.race([
-		p,
-		new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
-	])
+	return new Promise<T | null>((resolve, reject) => {
+		let settled = false
+		const timer = setTimeout(() => {
+			settled = true
+			resolve(null)
+		}, ms)
+		p.then(
+			(value) => {
+				if (settled) return
+				settled = true
+				clearTimeout(timer)
+				resolve(value)
+			},
+			(error) => {
+				if (settled) return
+				settled = true
+				clearTimeout(timer)
+				reject(error)
+			}
+		)
+	})
 }
 
 // 构造统一的取消错误（name=AbortError）：被取消的请求不视为真实失败，
@@ -302,6 +327,9 @@ const isUsableFXRateResponse = (response: unknown): response is FXRateWithPath =
 export interface FXDetailsUpdate {
 	data: FXListProps[]
 	fastFailed: boolean
+	// pending：快源结果已返回、慢源仍在后台；complete：慢源批成功完成，
+	// 即使没有可用报价也可移除旧慢源行；failed：慢源请求失败，应保留旧行兜底。
+	slowSourcesState?: "none" | "pending" | "complete" | "failed"
 }
 
 // 慢源后台批代际守卫：同一缓存 key 可能同时存在多个进行中的请求（手动刷新/自动刷新
@@ -340,7 +368,13 @@ export async function getCurrenciesDetails(
 	if (!force) {
 		const cached = cache.get(key)
 		if (cached) {
-			if (setResult) setResult({ data: cached, fastFailed: false })
+			if (setResult) {
+				setResult({
+					data: cached,
+					fastFailed: false,
+					slowSourcesState: "complete",
+				})
+			}
 			return cached
 		}
 	}
@@ -349,7 +383,9 @@ export async function getCurrenciesDetails(
 	const client = getFXRateClient()
 
 	const data: { [source: string]: FXListProps } = {}
+	const sourceResponseCounts: { [source: string]: number } = {}
 	let failed = false
+	let fastCacheComplete = true
 	let failedMessage = "获取报价失败：所有数据源均不可用，请稍后重试"
 
 	// 慢源（Visa/MasterCard 反爬抓取可达 30s+）拆出主批量：
@@ -389,6 +425,7 @@ export async function getCurrenciesDetails(
 			toCurrency,
 			fromCurrency,
 			(resp) => {
+				sourceResponseCounts[x] = (sourceResponseCounts[x] ?? 0) + 1
 				if (!isUsableFXRateResponse(resp)) return
 				const withPath = resp
 
@@ -422,6 +459,7 @@ export async function getCurrenciesDetails(
 			fromCurrency,
 			toCurrency,
 			(resp) => {
+				sourceResponseCounts[x] = (sourceResponseCounts[x] ?? 0) + 1
 				if (!isUsableFXRateResponse(resp)) return
 				const withPath = resp
 
@@ -481,11 +519,11 @@ export async function getCurrenciesDetails(
 	}
 
 	try {
-		// 后端 JSON-RPC 批量上限 100 条；每源排 2 条 getFXRate（双向），57 源即 114 条
-		// 超限被整批拒绝（-32000）。按 45 源/批分块（90 条 < 100），顺序执行——
-		// data 共享累积，慢源仍单独后台请求。
+		// 后端 JSON-RPC 批量上限 150 条；每源排 2 条 getFXRate（双向）。按 70
+		// 源/批分块（140 条 < 150），为未来批内附加请求预留 10 条余量；当前
+		// 约 59 个来源可在单批完成，各块仍顺序执行、共享 data，慢源继续单独请求。
 		const requestedFastSources = fastSources.filter(sourceSupportsPair)
-		const BATCH_CHUNK = 45
+		const BATCH_CHUNK = 70
 		for (let i = 0; i < requestedFastSources.length; i += BATCH_CHUNK) {
 			const chunk = requestedFastSources.slice(i, i + BATCH_CHUNK)
 			await runBatch(client, () => {
@@ -494,6 +532,10 @@ export async function getCurrenciesDetails(
 				}
 			}, signal)
 		}
+		fastCacheComplete = requestedFastSources.every(
+			(source) =>
+				sourceResponseCounts[source] == 2 && data[source] != undefined
+		)
 		if (
 			requestedFastSources.length > 0 &&
 			!requestedFastSources.some((source) => data[source] != undefined)
@@ -525,35 +567,44 @@ export async function getCurrenciesDetails(
 	if (slowGeneration != null) {
 		// 快源与慢源都成功才写缓存：慢源失败时只降级展示已成功部分，
 		// 不落缓存，保证下次请求仍会重试慢源
-		let slowOk = false
+		let slowCacheComplete = false
+		let slowSourcesState: "complete" | "failed" = "failed"
+		const requestedSlowSources = slowSources.filter(sourceSupportsPair)
 		const mergeAndNotify = () => {
 			const merged = Object.values(data)
 			if (merged.length > 0) {
-				// 快速源失败（failed=true）、慢源失败（slowOk=false）或本请求已不是
+				// 快速源失败（failed=true）、慢源失败（slowCacheComplete=false）或本请求已不是
 				// 该 key 最新代际（更晚的 force/普通请求已接管）都不写缓存，避免把
 				// 部分结果或过期慢源数据写进缓存导致下次请求不再重试缺失源
 				if (
 					!failed &&
-					slowOk &&
+					fastCacheComplete &&
+					slowCacheComplete &&
 					slowSourceLatestGen.get(key) == slowGeneration
 				) {
 					cache.set(key, merged)
 				}
-				if (setResult) setResult({ data: merged, fastFailed: failed })
+			}
+			if (setResult) {
+				setResult({
+					data: merged,
+					fastFailed: failed,
+					slowSourcesState,
+				})
 			}
 		}
 		;(async () => {
 			try {
 				await runBatch(client, () => {
-					for (const x of slowSources) {
-						if (sourceSupportsPair(x)) {
-							requestSource(x)
-						}
+					for (const x of requestedSlowSources) {
+						requestSource(x)
 					}
 				})
-				slowOk = slowSources
-					.filter(sourceSupportsPair)
-					.every((source) => data[source] != undefined)
+				slowSourcesState = "complete"
+				slowCacheComplete = requestedSlowSources.every(
+					(source) =>
+						sourceResponseCounts[source] == 2 && data[source] != undefined
+				)
 			} catch (error) {
 				console.error("Error getting slow source details:", error)
 			} finally {
@@ -573,7 +624,12 @@ export async function getCurrenciesDetails(
 	// 请求失败不写缓存，保证下次还能重试；
 	// 有慢源待后台批处理时也不写快源结果（慢源成功后才统一写缓存，
 	// 避免命中快源-only 数据）——慢源完成前缓存仍保持缺失状态
-	if (!failed && result.length > 0 && slowSources.length == 0) {
+	if (
+		!failed &&
+		fastCacheComplete &&
+		result.length > 0 &&
+		slowSources.length == 0
+	) {
 		cache.set(key, result)
 	}
 
@@ -582,7 +638,13 @@ export async function getCurrenciesDetails(
 		throw new Error(failedMessage)
 	}
 
-	if (setResult) setResult({ data: result, fastFailed: failed })
+	if (setResult) {
+		setResult({
+			data: result,
+			fastFailed: failed,
+			slowSourcesState: slowGeneration == null ? "none" : "pending",
+		})
+	}
 	return result
 }
 
@@ -600,6 +662,69 @@ export interface RatesMatrixCell {
 
 export interface RatesMatrix {
 	[source: string]: { [currency: string]: RatesMatrixCell }
+}
+
+// 矩阵空行可能同时触发多个来源的逐货币补查。不同来源不能强行合并进同一
+// JSON-RPC batch（任一来源报错会让 client.done() 以整批错误拒绝，破坏来源级
+// 重试隔离），因此在 tools 层用有界并发削平突发，同时保留每个来源独立批次。
+const MATRIX_ROW_MAX_CONCURRENCY = 4
+let matrixRowActiveRequests = 0
+const matrixRowWaiters: Array<{
+	resolve: (release: () => void) => void
+	reject: (error: Error) => void
+	signal?: AbortSignal
+	onAbort?: () => void
+}> = []
+
+const releaseMatrixRowSlot = (): void => {
+	matrixRowActiveRequests = Math.max(0, matrixRowActiveRequests - 1)
+	while (matrixRowWaiters.length > 0) {
+		const waiter = matrixRowWaiters.shift()!
+		if (waiter.signal?.aborted) {
+			waiter.reject(createAbortError())
+			continue
+		}
+		if (waiter.signal && waiter.onAbort) {
+			waiter.signal.removeEventListener("abort", waiter.onAbort)
+		}
+		matrixRowActiveRequests++
+		let released = false
+		waiter.resolve(() => {
+			if (released) return
+			released = true
+			releaseMatrixRowSlot()
+		})
+		break
+	}
+}
+
+const acquireMatrixRowSlot = (signal?: AbortSignal): Promise<() => void> => {
+	if (signal?.aborted) return Promise.reject(createAbortError())
+	if (matrixRowActiveRequests < MATRIX_ROW_MAX_CONCURRENCY) {
+		matrixRowActiveRequests++
+		let released = false
+		return Promise.resolve(() => {
+			if (released) return
+			released = true
+			releaseMatrixRowSlot()
+		})
+	}
+	return new Promise<() => void>((resolve, reject) => {
+		const waiter: (typeof matrixRowWaiters)[number] = {
+			resolve,
+			reject,
+			signal,
+		}
+		if (signal) {
+			waiter.onAbort = () => {
+				const index = matrixRowWaiters.indexOf(waiter)
+				if (index >= 0) matrixRowWaiters.splice(index, 1)
+			reject(createAbortError())
+			}
+			signal.addEventListener("abort", waiter.onAbort, { once: true })
+		}
+		matrixRowWaiters.push(waiter)
+	})
 }
 
 export async function getRatesMatrix(
@@ -748,6 +873,7 @@ export async function getSourceMatrixRow(
 	if (signal != undefined && signal.aborted) {
 		throw createAbortError()
 	}
+	const releaseSlot = await acquireMatrixRowSlot(signal)
 
 	try {
 		await runBatch(client, () => {
@@ -787,6 +913,8 @@ export async function getSourceMatrixRow(
 		if (isAbortError(error)) throw error
 		console.error(`Error getting matrix row for ${source}:`, error)
 		throw error
+	} finally {
+		releaseSlot()
 	}
 	if (Object.keys(row).length == 0 && invalidResponses > 0) {
 		throw new Error(`${source} 暂无可用报价，请稍后重试`)
