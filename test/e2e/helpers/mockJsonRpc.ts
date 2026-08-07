@@ -83,8 +83,9 @@ export function mockJsonRpcRoutes(page: Page): MockJsonRpc {
 	page.route("**/api/fxrate", async (route) => {
 		stats.batches++
 		const body = route.request().postDataJSON()
-		const list: { id: string; method: string; params: Record<string, unknown> }[] =
-			Array.isArray(body) ? body : []
+		const isBatch = Array.isArray(body)
+		const list: { id: string | number; method: string; params: Record<string, unknown> }[] =
+			isBatch ? body : [body]
 		const responses = list.map((r) => {
 			stats.methods[r.method] = (stats.methods[r.method] ?? 0) + 1
 			;(paramsByMethod[r.method] ??= []).push(r.params ?? {})
@@ -101,7 +102,7 @@ export function mockJsonRpcRoutes(page: Page): MockJsonRpc {
 		await route.fulfill({
 			status: 200,
 			contentType: "application/json",
-			body: JSON.stringify(responses),
+			body: JSON.stringify(isBatch ? responses : responses[0]),
 		})
 	})
 	return {

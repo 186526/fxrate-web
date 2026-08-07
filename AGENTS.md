@@ -12,6 +12,8 @@ FXRate-web 是一个外汇汇率查看网页应用（前端），配套仓库 [1
 app/                 # 路由页面（layout.tsx、page.tsx 默认视图 SSR 预取 + 薄壳降级、loading.tsx 加载骨架）
 componets/           # 注意：目录名拼写如此（components 的 typo），是有意为之，勿改名
   index.tsx          # 客户端主组件（orchestrator）：状态、数据拉取、视图切换、视图数据缓存、sticky Header、Footer
+  apidocs.tsx        # API 文档页 orchestrator：hash 端点选择、实例元数据与模块组合
+  api-docs/          # API 文档 typed endpoint model、请求构建/abort 协调器、导航、工作台与参考区组件
   currencyChooser.tsx# 货币选择器（受控 Autocomplete + 换向 + 金额；矩阵视图只显示基准货币/金额）
   fxlistgrid.tsx     # 单对报价表（MUI Table：排序、最优价高亮、相对更新时间、首列 sticky、来源 logo）
   fxmatrixgrid.tsx   # 全对矩阵表（source × 货币，现钞/现汇/中间价切换、列高亮、常用币种筛选、列头国旗 emoji）
