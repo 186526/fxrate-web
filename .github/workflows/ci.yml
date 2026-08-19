@@ -10,6 +10,9 @@ on:
   # Phase 6 发布门禁：CD workflow 以 reusable workflow 方式调用本 CI，
   # 保证 tag/release 发版前必须通过同一组 typecheck/lint/test/build 门禁。
   workflow_call:
+    secrets:
+      FXRATE_SUBMODULE_TOKEN:
+        required: true
 
 jobs:
   gates:
@@ -18,8 +21,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          # tsc resolves imports from the lib/fxrate submodule.
+          # tsc resolves imports from the private lib/fxrate submodule.
           submodules: recursive
+          token: ${{ secrets.FXRATE_SUBMODULE_TOKEN }}
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
