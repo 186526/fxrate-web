@@ -12,11 +12,14 @@ componets/           # 目录名拼写错误是有意为之，勿改名
   currencyChooser.tsx # 货币选择器（受控 Autocomplete + 换向 + 金额；矩阵视图只显示基准货币/金额）
   fxlistgrid.tsx     # 单对报价表（排序、最优价高亮、相对更新时间、首列 sticky、来源 logo）
   fxmatrixgrid.tsx   # 全对矩阵表（source × 货币，现钞/现汇/中间价切换、列高亮、常用币种筛选、列头国旗）
+  matrix-utils.ts    # fxmatrixgrid 的纯函数：值归一/格式/取值、反向路径方向化、单元格字段级合并
+  view-utils.ts      # index 的视图层纯函数：URL 构造与解析、缓存 key、快照有效性判定、视图记忆读写
   footer.tsx         # 页脚（版权/by 链接、前后端版本 tooltip、GitHub 链接）
   bestPriceSources.ts# 最优价高亮来源集合 hook（默认排除央行/卡组织，localStorage 持久化）
   sourceIcon.tsx     # 来源图标（本地 logo 优先，类型图标兜底）+ 货币国旗映射
   theme.tsx / theme-init.ts  # MUI 主题 Provider（Sunoaki 风）+ 预绘制主题脚本（beforeInteractive 注入）
   tools.ts           # FXRate client 单例、批量查询、LRU 缓存（货币列表/单对/矩阵）
+  shared.ts          # 零 componets 依赖的共享类型/工具：FXListProps、isAbortError（唯一实现）
   ssr-prefetch.ts    # 默认视图 SSR 预取（server-only）：SWR 缓存 TTL 45s + 8s 超时降级
   web-vitals.tsx     # Web Vitals 内存记录（window.__FX_WEB_VITALS__，不发网络请求）
 lib/fxrate/          # git submodule（后端库，含 src/client JSON-RPC client）
