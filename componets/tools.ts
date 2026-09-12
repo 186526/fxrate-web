@@ -1,4 +1,5 @@
-import { FXListProps } from "@/componets/fxlistgrid"
+import type { FXListProps } from "@/componets/shared"
+import { isAbortError } from "@/componets/shared"
 import FXRates, { infoResponse, fxRateResponse } from "@/lib/fxrate/src/client"
 import { LRUCache } from "lru-cache"
 import { cache as reactCache } from "react"
@@ -165,9 +166,8 @@ const createAbortError = (): Error => {
 	return error
 }
 
-// 识别取消错误：参数/视图变化引起的请求作废，不应展示为加载失败
-export const isAbortError = (e: unknown): boolean =>
-	e instanceof Error && e.name == "AbortError"
+// 识别取消错误：唯一实现见 componets/shared.ts（此处 re-export 供既有导入使用）
+export { isAbortError }
 
 // 让 Promise 可被 AbortSignal 提前放弃：abort 触发时立即以 AbortError 拒绝，
 // 不再等待原 Promise settle；原 Promise 后续 resolve/reject 都被消化，

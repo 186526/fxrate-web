@@ -1,5 +1,6 @@
 import type { infoResponse } from "@/lib/fxrate/src/client"
 import type { JsonRpcRequest } from "./model"
+import { isAbortError } from "@/componets/shared"
 
 export type RequestState =
 	| { status: "idle" }
@@ -25,11 +26,8 @@ interface RequestSlot {
 	controller: AbortController | null
 }
 
-export function isAbortError(error: unknown): boolean {
-	return error instanceof DOMException
-		? error.name == "AbortError"
-		: error instanceof Error && error.name == "AbortError"
-}
+// 唯一实现见 componets/shared.ts（此处 re-export，既有导入路径不变）
+export { isAbortError }
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error)

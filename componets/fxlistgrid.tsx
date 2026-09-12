@@ -27,6 +27,7 @@ import { useBestPriceSources } from "@/componets/bestPriceSources"
 import BestPriceMark from "@/componets/bestPriceMark"
 import { SourceIcon } from "@/componets/sourceIcon"
 import { rssURL, ratesPageURL } from "@/componets/tools"
+import { FXListProps } from "@/componets/shared"
 import {
 	RateValue,
 	toNumber,
@@ -41,20 +42,8 @@ import {
 	useMounted,
 } from "@/componets/rateStats"
 
-export interface FXListProps {
-	name: string
-	type: {
-		buy?: { cash?: number | string; remit?: number | string }
-		sell?: { cash?: number | string; remit?: number | string }
-		middle?: number | string
-	}
-	updated: Date
-	id?: number
-	// 交叉汇率时后端回传的实际兑换路径（如 ["CNH","HKD","JPY"]）
-	path?: string[]
-	// CNY/CNH 归一化：源只用 CNH 报价时实际使用 CNH 汇率（后端 alias 字段）
-	alias?: string
-}
+// 既有导入路径兼容：FXListProps 实体已移至 componets/shared.ts
+export type { FXListProps } from "@/componets/shared"
 
 const nameMapping: { [x: string]: string } = sourceNamesInZH
 
