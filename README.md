@@ -55,4 +55,3 @@ yarn dev
 
 - `AGENTS.md` — 项目约定、已知问题与易踩的坑
 - `docs/architecture.md` — 数据流、缓存、慢源拆分、AbortSignal、矩阵合并、URL 同步、主题与构建元数据
-- `TECH_DEBT_AUDIT.md` — 技术债审计（含已知问题清单）
