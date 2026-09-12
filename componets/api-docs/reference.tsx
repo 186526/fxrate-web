@@ -155,11 +155,16 @@ export function InstancePanel({
 export function ReferenceSections({
 	info,
 	endpointHost,
+	restBase,
 }: {
 	info: infoResponse | null
 	endpointHost: string
+	restBase: string | null
 }) {
-	const rssUrl = endpointHost ? `${endpointHost}/api/rest/rss/USD/CNY` : "/api/rest/rss/USD/CNY"
+	// 公开后端地址优先：复制/打开出去的链接不依赖当前前端部署。
+	// 构建期元数据未就绪时回落同源代理路径，浏览器仍可访问。
+	const restRoot = restBase ?? (endpointHost ? `${endpointHost}/api/rest` : "")
+	const rssUrl = restRoot ? `${restRoot}/rss/USD/CNY` : "/api/rest/rss/USD/CNY"
 
 	return (
 		<Box component="aside" aria-label="API 补充参考" sx={{ mt: { xs: 3, sm: 4 } }}>

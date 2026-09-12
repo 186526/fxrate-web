@@ -115,17 +115,33 @@ export function ratesPageURL(source: string): string | undefined {
 	return sourceRatesURL[source]
 }
 
-// RSS 订阅链接：浏览器经同源 /api/rest 代理访问，避免把 JSON-RPC 的
-// /api/fxrate 端点 origin 直接拼成不存在的前端 /rss 路由。
+// 构建期冻结的公开 REST 基址。next.config.mjs 的 env 块把 FXRATE_PROXY_BUILD
+// 内联进浏览器 bundle，去掉 /v1/jsonrpc 后缀即后端 REST 根（与 app/api/backend-meta
+// 的 restBase 同源同算法）。取不到或后缀不匹配时返回空串，由调用方回落同源代理。
+function publicRestBase(): string {
+	const proxy = process.env.FXRATE_PROXY_BUILD
+	if (!proxy) return ""
+	const base = proxy.replace(/\/v1\/jsonrpc\/?$/, "")
+	return base == proxy ? "" : base
+}
+
+// RSS 订阅链接：优先给公开后端地址（fxrate.sunoaki.net/rss/USD/CNY），
+// 复制出去在任意前端部署下都能订阅；取不到构建期地址时回落同源 /api/rest 代理。
 export function rssURL(from: string, to: string): string {
+	const path = `/rss/${encodeURIComponent(from)}/${encodeURIComponent(to)}`
+	const base = publicRestBase()
+	if (base) {
+		try {
+			return new URL(`${base.replace(/\/+$/, "")}${path}`).toString()
+		} catch {
+			// 非绝对地址（如仅路径的代理）时回落同源处理
+		}
+	}
 	const endpoint = getFXRateClient().endpoint
 	const restPrefix = endpoint.pathname.replace(/\/+$/, "") == "/api/fxrate"
 		? "/api/rest"
 		: ""
-	return new URL(
-		`${restPrefix}/rss/${encodeURIComponent(from)}/${encodeURIComponent(to)}`,
-		endpoint.origin
-	).toString()
+	return new URL(`${restPrefix}${path}`, endpoint.origin).toString()
 }
 
 // 数据请求超时阈值（默认）：超过则放弃等待，让调用方降级处理（如客户端首屏不被慢后端拖住）

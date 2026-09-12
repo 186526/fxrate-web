@@ -185,4 +185,23 @@ describe("APIDocs", () => {
 		expect(alert).toHaveTextContent("请求超时")
 		expect(alert).toHaveTextContent("请稍后重试")
 	})
+
+	it("RSS 参考链接指向公开后端地址而不是前端同源代理", async () => {
+		renderDocs()
+
+		const link = await screen.findByRole("link", {
+			name: "https://fxrate.example/rss/USD/CNY",
+		})
+		expect(link).toHaveAttribute("href", "https://fxrate.example/rss/USD/CNY")
+		expect(link).not.toHaveAttribute("href", expect.stringContaining("/api/rest"))
+	})
+
+	it("REST 端点 curl 使用后端公开基址", async () => {
+		window.history.replaceState(null, "", "/api-docs#rest-pair")
+		renderDocs()
+
+		const curl = await screen.findByText(/curl -X GET/)
+		expect(curl).toHaveTextContent("https://fxrate.example/boc/USD/CNY")
+		expect(curl.textContent).not.toContain("/api/rest")
+	})
 })

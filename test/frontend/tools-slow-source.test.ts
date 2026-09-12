@@ -293,8 +293,10 @@ describe("getCurrenciesDetails 慢源缓存完整性", () => {
 })
 
 describe("浏览器 RSS 链接", () => {
-	it("浏览器 JSON-RPC 同源代理映射到 /api/rest/rss", () => {
+	it("构建期无公开地址时回落同源 /api/rest 代理", () => {
 		const originalEndpoint = FXRate.endpoint
+		const originalProxy = process.env.FXRATE_PROXY_BUILD
+		delete process.env.FXRATE_PROXY_BUILD
 		FXRate.endpoint = new URL("/api/fxrate", window.location.origin)
 		try {
 			const url = new URL(rssURL("USD", "CNY"))
@@ -302,6 +304,36 @@ describe("浏览器 RSS 链接", () => {
 			expect(url.pathname).toBe("/api/rest/rss/USD/CNY")
 		} finally {
 			FXRate.endpoint = originalEndpoint
+			if (originalProxy == null) delete process.env.FXRATE_PROXY_BUILD
+			else process.env.FXRATE_PROXY_BUILD = originalProxy
+		}
+	})
+
+	it("构建期有公开地址时直接拼后端 /rss，不经前端代理", () => {
+		const originalProxy = process.env.FXRATE_PROXY_BUILD
+		process.env.FXRATE_PROXY_BUILD = "https://fxrate.example/v1/jsonrpc"
+		try {
+			expect(rssURL("USD", "CNY")).toBe("https://fxrate.example/rss/USD/CNY")
+			expect(rssURL("USD", "CNY")).not.toContain("/api/rest")
+		} finally {
+			if (originalProxy == null) delete process.env.FXRATE_PROXY_BUILD
+			else process.env.FXRATE_PROXY_BUILD = originalProxy
+		}
+	})
+
+	it("代理地址后缀不是 /v1/jsonrpc 时回落同源代理", () => {
+		const originalEndpoint = FXRate.endpoint
+		const originalProxy = process.env.FXRATE_PROXY_BUILD
+		process.env.FXRATE_PROXY_BUILD = "https://fxrate.example/custom-rpc"
+		FXRate.endpoint = new URL("/api/fxrate", window.location.origin)
+		try {
+			const url = new URL(rssURL("USD", "CNY"))
+			expect(url.origin).toBe(window.location.origin)
+			expect(url.pathname).toBe("/api/rest/rss/USD/CNY")
+		} finally {
+			FXRate.endpoint = originalEndpoint
+			if (originalProxy == null) delete process.env.FXRATE_PROXY_BUILD
+			else process.env.FXRATE_PROXY_BUILD = originalProxy
 		}
 	})
 })

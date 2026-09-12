@@ -235,6 +235,7 @@ export default function APIDocs() {
 						<ReferenceSections
 							info={infoState.status == "success" ? infoState.data : null}
 							endpointHost={endpointHost}
+							restBase={metaState.status == "success" ? metaState.data.restBase : null}
 						/>
 					</Box>
 				</Box>
