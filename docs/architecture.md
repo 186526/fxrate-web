@@ -26,7 +26,10 @@ lib/fxrate/          # git submodule（后端库，含 src/client JSON-RPC clien
 public/bank-logos/   # 59 源 logo SVG（source 代码命名，如 hsbc.cn.svg）+ cfets/hkma PNG；SourceIcon 兜底
                      # iconfont 来源 SVG 统一标准：1024² 画布 → canvas 检测非白像素边界 → viewBox 裁剪「图形 ~93%、留 ~7% 内边距」；
                      # 横向徽章（HSBC 菱形）品牌固有形状，裁剪后偏矮属正常，勿强行方形化
+public/fonts/        # noto-color-emoji-flags.woff2（Windows 国旗字形分片，见下）
 ```
+
+**新增 `public/` 静态目录必须同步 nginx 路由**：生产入口是 openresty（`kubernetes/fxrate` 仓库的 `02-fxrate-openresty.yml`），它按 location 前缀显式转发到 `fxrate-web:3000`，未列出的路径落到 `location /` 被代理到后端 `fxrate:8080` 并 404（该缺口曾使 `/fonts` 上的国旗字体在 Windows 取不到字形）。现有白名单：`/_next`、`/api/fxrate`、`/api/backend-meta`、`/api-docs`、`/api/rest`、`/matrix`、`/bank-logos`、`/fonts`。改动 ConfigMap 只更新挂载文件，openresty 不会自动重载，需 `rollout restart deployment/fxrate-ngx` 使配置生效。
 
 ## 数据流与缓存
 
