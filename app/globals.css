@@ -10,6 +10,16 @@ body {
    写入 <html data-theme>）。首帧背景与 color-scheme 即按主题，暗色用户不再先看到白屏；
    html[data-theme=dark] body 比 Emotion CssBaseline 的 body 规则特异性高，hydration
    校正前也不会被 SSR 的浅色 body 背景覆盖。 */
+/* Windows 的 Segoe UI Emoji 不含国旗字形，区域指示符对只渲染成两个字母。layout 按 UA 判定
+   Windows 时才把该字体族加进 body 的 font-family，不引用就不会下载；其他平台系统自带国旗。
+   文件是 Google Fonts 的 Noto Color Emoji 区域指示符分片（U+1F1E6-1F1FF，含全部国旗）。 */
+@font-face {
+	font-family: "Noto Color Emoji Flags";
+	src: url("/fonts/noto-color-emoji-flags.woff2") format("woff2");
+	font-display: swap;
+	unicode-range: U+1F1E6-1F1FF;
+}
+
 html[data-theme="dark"] {
 	background-color: #10171c;
 	color-scheme: dark;
@@ -38,7 +48,7 @@ html[data-theme="light"] body {
    注意：这里只做过渡，不预先反转背景/文字——组件内文字（logo/tabs/按钮/输入框）
    全部使用 SSR 浅色 palette 的具体颜色，单独改背景会让深色文字落在深色表面上
    在 flash 窗口内不可读；完整暗色 palette 预渲染因 getServerSnapshot hydration
-   契约与 alpha()/backdrop 具体色值依赖而推迟，见 AGENTS.md「主题」一节 */
+   契约与 alpha()/backdrop 具体色值依赖而推迟，见 docs/architecture.md「URL 同步、主题与构建元数据」一节 */
 header {
 	transition: background-color 0.2s ease;
 }

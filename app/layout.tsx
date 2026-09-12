@@ -10,6 +10,9 @@ import { WebVitals } from "@/componets/web-vitals"
 
 const inter = Inter({ subsets: ["latin"] })
 
+// Windows 的 Segoe UI Emoji 不含国旗字形；其他平台系统自带，无需该字体族
+const FLAG_EMOJI_FONT = "Noto Color Emoji Flags"
+
 export const metadata: Metadata = {
 	title: "FXRate-web",
 	description: "外汇牌价查询 · 多家银行/平台汇率对比 | by @real186526",
@@ -25,7 +28,15 @@ export default async function RootLayout({
 	// 绘制前把主题写入 <html data-theme>（消除 dark-mode 背景白闪）。MUI 组件的完整
 	// 暗色 palette 仍在 hydration 后由 ThemeProvider 校正。headers() 是动态 API，
 	// 布局因此动态渲染——与 nonce-based CSP 的要求一致（每次请求的 nonce 都是新的）。
-	const nonce = (await headers()).get("x-nonce") ?? undefined
+	const requestHeaders = await headers()
+	const nonce = requestHeaders.get("x-nonce") ?? undefined
+	// Windows 的 Segoe UI Emoji 只有字母没有国旗字形，追加 Noto Color Emoji 的国旗分片
+	// （app/globals.css 的 @font-face）；其他平台系统自带国旗，不引用该字体族即不下载。
+	const flagEmojiStyle = /Windows NT/i.test(
+		requestHeaders.get("user-agent") ?? "",
+	)
+		? { fontFamily: `${inter.style.fontFamily}, "${FLAG_EMOJI_FONT}"` }
+		: undefined
 
 	return (
 		<html lang="zh-CN" suppressHydrationWarning>
@@ -43,7 +54,7 @@ export default async function RootLayout({
 					dangerouslySetInnerHTML={{ __html: themeInitScript }}
 				/>
 			</head>
-			<body className={inter.className}>
+			<body className={inter.className} style={flagEmojiStyle}>
 				<WebVitals />
 				<AppRouterCacheProvider>
 					<ThemeProvider>{children}</ThemeProvider>
