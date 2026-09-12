@@ -16,7 +16,7 @@ import {
 
 const isoNow = () => new Date().toISOString()
 
-const okRate = (p: Record<string, unknown>) => ({
+const okRate = () => ({
 	middle: 7.1,
 	cash: 7.05,
 	remit: 7.08,
@@ -173,7 +173,7 @@ describe("getCurrenciesDetails", () => {
 		createBatchMock({
 			getFXRate: (p) => {
 				if (p.source == "bankB") throw new Error("rate blocked")
-				return okRate(p)
+				return okRate()
 			},
 		})
 
@@ -196,7 +196,7 @@ describe("getCurrenciesDetails", () => {
 			getFXRate: (p) =>
 				p.source == "bankEmpty" && !emptyOk
 					? { updated: isoNow() }
-					: okRate(p),
+					: okRate(),
 		})
 
 		const first = await getCurrenciesDetails(
@@ -290,7 +290,7 @@ describe("getCurrenciesDetails", () => {
 			getFXRate: (p) => {
 				// 反向（外币→CNY）无结汇业务：oneWay 后端不写反向边，返回无报价响应
 				if (p.from == "USD" && p.to == "CNY") return { updated: isoNow() }
-				return okRate(p)
+				return okRate()
 			},
 		})
 
@@ -324,7 +324,7 @@ describe("getRatesMatrix / getSourceMatrixRow", () => {
 	it("矩阵按 from-amount-precision-方向 key 缓存：同参数零请求，参数变化重新请求", async () => {
 		const currencies = { bankA: ["CNY", "USD", "EUR"] }
 		const stats = createBatchMock({
-			listFXRates: (p) => {
+			listFXRates: () => {
 				const row: Record<string, unknown> = {}
 				for (const c of ["USD", "EUR"]) {
 					row[c] = {
@@ -357,7 +357,7 @@ describe("getRatesMatrix / getSourceMatrixRow", () => {
 	it("矩阵缓存 key 纳入来源与 skipSources 指纹：skip 策略/来源变化重新请求", async () => {
 		const currencies = { bankA: ["CNY", "USD", "EUR"] }
 		const stats = createBatchMock({
-			listFXRates: (p) => {
+			listFXRates: () => {
 				const row: Record<string, unknown> = {}
 				for (const c of ["USD", "EUR"]) {
 					row[c] = {
@@ -533,10 +533,10 @@ describe("getRatesMatrix / getSourceMatrixRow", () => {
 
 	it("getRatesMatrix 与 getSourceMatrixRow 同样透传小数金额到后端", async () => {
 		const stats = createBatchMock({
-			listFXRates: (p) => {
+			listFXRates: () => {
 				const row: Record<string, unknown> = {}
 				for (const c of ["USD", "EUR"]) {
-					row[c] = { ...okRate(p), middle: c == "USD" ? 7.1 : 8.2 }
+					row[c] = { ...okRate(), middle: c == "USD" ? 7.1 : 8.2 }
 				}
 				return row
 			},

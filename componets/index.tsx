@@ -1354,7 +1354,6 @@ export default function Index({
 											from={pairReqFrom}
 											to={pairReqTo}
 											amount={amount}
-											precision={precision}
 										/>
 									) : !pairError ? (
 										<Alert severity="info">

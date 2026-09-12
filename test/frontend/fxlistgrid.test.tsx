@@ -40,7 +40,7 @@ function baseProps(): FXListProps[] {
 function renderList(props: FXListProps[] = baseProps()) {
 	return render(
 		<ThemeProvider theme={theme}>
-			<FXListGrid props={props} from="CNY" to="USD" amount={100} precision={4} />
+			<FXListGrid props={props} from="CNY" to="USD" amount={100} />
 		</ThemeProvider>
 	)
 }

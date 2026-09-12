@@ -154,13 +154,11 @@ function FXListGrid({
 	from,
 	to,
 	amount,
-	precision = -1,
 }: {
 	props: FXListProps[]
 	from: string
 	to: string
 	amount: number
-	precision?: number
 }) {
 	const [sortKey, setSortKey] = React.useState<SortKey>("name")
 	const [sortDir, setSortDir] = React.useState<"asc" | "desc">("asc")
