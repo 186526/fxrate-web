@@ -5,8 +5,8 @@
 // 任何失败/超时/空结果都降级为薄壳（客户端照常自己拉数），绝不阻塞首屏。
 import type { FXListProps } from "@/componets/fxlistgrid"
 import {
+	getBackendInfo,
 	getCurrenciesDetails,
-	getFXRateClient,
 	showCurrencyAllRates,
 	withTimeout,
 } from "./tools"
@@ -77,12 +77,14 @@ export async function prefetchDefaultView(
 
 	try {
 		// 注意：info() 必须在 showCurrencyAllRates 之后串行调用——后者内部开启 batch，
-		// 并行的 info() 会被吞进批量队列拿不到结果
+		// 并行的 info() 会被吞进批量队列拿不到结果。
+		// 经 getBackendInfo() 走 60s 短缓存：showCurrencyAllRates 内部已取过一次
+		// instanceInfo，这里通常直接命中缓存，不再发第二次 RPC。
 		const cur = await withTimeout(showCurrencyAllRates(), SSR_TIMEOUT_MS)
 		if (!cur) return empty
 
 		const info = await withTimeout(
-			Promise.resolve(getFXRateClient().info()),
+			Promise.resolve(getBackendInfo()),
 			SSR_TIMEOUT_MS
 		)
 		const initialBackendVersion =

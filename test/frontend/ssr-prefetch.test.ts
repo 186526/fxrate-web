@@ -21,7 +21,7 @@ vi.mock("@/componets/tools", async (importOriginal) => {
 		...actual,
 		showCurrencyAllRates: mockShow,
 		getCurrenciesDetails: mockDetails,
-		getFXRateClient: () => ({ info: mockInfo }),
+		getBackendInfo: mockInfo,
 	}
 })
 

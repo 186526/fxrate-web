@@ -246,6 +246,29 @@ const currenciesCache = new LRUCache<string, { [source: string]: string[] }>({
 	ttl: 1000 * 60 * 5,
 })
 
+// info() 的短 TTL 缓存。SSR 首屏预取路径会取两次 instanceInfo：一次在
+// showCurrencyAllRates 内部（要 sources 决定批量查哪些源），一次在
+// ssr-prefetch 里（要 version 填页脚）。两次都走独立 RPC，冷启动实测
+// 第二次多花约 400ms。sources/version 只在后端部署时变化（部署即重启进程、
+// 模块级缓存自然清空），60s 内复用是安全的。失败不写缓存，下次重试。
+const infoCache = new LRUCache<string, infoResponse>({
+	max: 1,
+	ttl: 1000 * 60,
+})
+
+// 测试用：清空 info 缓存（模块级缓存跨用例存活，避免用例间互相命中）
+export function clearBackendInfoCache(): void {
+	infoCache.clear()
+}
+
+export async function getBackendInfo(): Promise<infoResponse> {
+	const cached = infoCache.get("info")
+	if (cached) return cached
+	const info = (await getFXRateClient().info()) as infoResponse
+	infoCache.set("info", info)
+	return info
+}
+
 export async function showCurrencyAllRates(): Promise<{
 	[source: string]: string[]
 }> {
@@ -253,9 +276,7 @@ export async function showCurrencyAllRates(): Promise<{
 	if (cached) return cached
 
 	const client = getFXRateClient()
-	const Info = (await client.info()) as infoResponse
-
-	const sources = Info.sources
+	const sources = (await getBackendInfo()).sources
 
 	const answer: { [source: string]: string[] } = {}
 

@@ -1,5 +1,7 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
+	clearBackendInfoCache,
+	getBackendInfo,
 	getCurrenciesDetails,
 	getFXRateClient,
 	getRatesMatrix,
@@ -65,6 +67,10 @@ describe("URL 与超时工具", () => {
 describe("showCurrencyAllRates", () => {
 	afterEach(() => {
 		vi.spyOn(console, "error").mockRestore()
+		clearBackendInfoCache()
+	})
+	beforeEach(() => {
+		clearBackendInfoCache()
 	})
 
 	it("部分来源失败时返回部分结果，且不缓存部分结果（下次重新请求）", async () => {
@@ -115,6 +121,26 @@ describe("showCurrencyAllRates", () => {
 		const r2 = await showCurrencyAllRates()
 		expect(stats.batches).toBe(batchesAfterFirst)
 		expect(r2).toEqual(r1)
+	})
+
+	it("getBackendInfo 复用 showCurrencyAllRates 已取的 instanceInfo（SSR 路径只发一次）", async () => {
+		const stats = createBatchMock({
+			instanceInfo: () => ({
+				environment: "test",
+				sources: ["bankA", "bankB"],
+				version: "fxrate@mock",
+				status: "ok",
+				apiVersion: "1",
+			}),
+			listCurrencies: () => ({ currency: ["CNY", "USD"], date: isoNow() }),
+		})
+
+		// 复刻 ssr-prefetch 的顺序：先 showCurrencyAllRates，再取 info 填页脚
+		await showCurrencyAllRates()
+		const info = await getBackendInfo()
+
+		expect(info.version).toBe("fxrate@mock")
+		expect(stats.methods.instanceInfo).toBe(1)
 	})
 })
 
