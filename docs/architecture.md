@@ -8,6 +8,8 @@
 app/                 # 路由（layout/page 默认视图 SSR 预取+薄壳降级、loading 骨架、matrix 薄壳）
 componets/           # 目录名拼写错误是有意为之，勿改名
   index.tsx          # 客户端主组件（orchestrator）：状态、拉数、视图切换、视图缓存、sticky Header/Footer
+  index-content.tsx  # 报价/矩阵内容渲染与加载/错误状态展示（由 index 编排数据）
+  persistent-state.ts# useSyncExternalStore 驱动的 localStorage 持久化状态，SSR 返回稳定默认值
   apidocs.tsx / api-docs/  # API 文档页 orchestrator + typed endpoint model、请求协调器、导航/工作台组件
   currencyChooser.tsx # 货币选择器（受控 Autocomplete + 换向 + 金额；矩阵视图只显示基准货币/金额）
   fxlistgrid.tsx     # 单对报价表（排序、最优价高亮、相对更新时间、首列 sticky、来源 logo）
@@ -23,6 +25,10 @@ componets/           # 目录名拼写错误是有意为之，勿改名
   ssr-prefetch.ts    # 默认视图 SSR 预取（server-only）：SWR 缓存 TTL 45s + 8s 超时降级
   web-vitals.tsx     # Web Vitals 内存记录（window.__FX_WEB_VITALS__，不发网络请求）
 lib/fxrate/          # git submodule（后端库，含 src/client JSON-RPC client）
+  src/readiness.ts    # readiness 纯函数判定：关键源、pending、degraded 与可用数据
+  src/sourceLifecycle.ts # 来源状态机纯函数：pending/ready/degraded/warm-up 转移
+  src/handler/sourceRouter.ts # 单来源 REST 路由（info/全表/单对/金额换算），通过窄依赖回调访问 manager
+  src/handler/rpcHandlers.ts # JSON-RPC 领域方法（instanceInfo/listCurrencies/listFXRates/getFXRate）
 public/bank-logos/   # 59 源 logo SVG（source 代码命名，如 hsbc.cn.svg）+ cfets/hkma PNG；SourceIcon 兜底
                      # iconfont 来源 SVG 统一标准：1024² 画布 → canvas 检测非白像素边界 → viewBox 裁剪「图形 ~93%、留 ~7% 内边距」；
                      # 横向徽章（HSBC 菱形）品牌固有形状，裁剪后偏矮属正常，勿强行方形化
@@ -33,10 +39,14 @@ public/fonts/        # noto-color-emoji-flags.woff2（Windows 国旗字形分片
 
 ## 数据流与缓存
 
-- **数据流**：`app/page.tsx` 仅对默认视图（`/` 且参数缺省或默认 from=CNY/to=USD/amount=100/precision=4）做 SSR 预取（`ssr-prefetch.ts` → `showCurrencyAllRates()` + `info()` + `getCurrenciesDetails()`），结果以 `initialCurrencies`/`initialResult`/`initialBackendVersion` props 随 RSC 下发，hydration 不重复拉货币列表/版本；服务端模块级 SWR 缓存 TTL 45s + 8s `withTimeout`，任何失败/超时/空结果降级为薄壳（客户端照常自拉），绝不阻塞首屏。**非默认参数/矩阵视图保持纯客户端，URL 参数变化绝不触发服务端数据请求**（历史卡顿根因）；`/matrix` 路由仍是薄壳。挂载后 300ms 客户端仍触发一次 SWR 刷新（补 visa 慢源行 + 最新值）。k8s web 部署 `FXRATE_API` 指向集群内 `http://fxrate:8080/v1/jsonrpc`（SSR 直连），`FXRATE_PROXY` 保持公网 URL 供浏览器 `/api/fxrate` 代理。
+- **数据流**：`app/page.tsx` 仅对默认视图（`/` 且参数缺省或默认 from=CNY/to=USD/amount=100/precision=4）做 SSR 预取（`ssr-prefetch.ts` → `showCurrencyAllRates()` + `info()` + `getCurrenciesDetails()`），结果以 `initialCurrencies`/`initialResult`/`initialBackendVersion` props 随 RSC 下发，hydration 不重复拉货币列表/版本；服务端模块级 SWR 缓存 TTL 45s + 8s `withTimeout`，同一 precision 的并发 RSC 请求共享 in-flight 预取链路，任何失败/超时/空结果降级为薄壳（客户端照常自拉），绝不阻塞首屏。**非默认参数/矩阵视图保持纯客户端，URL 参数变化绝不触发服务端数据请求**（历史卡顿根因）；`/matrix` 路由仍是薄壳。挂载后 300ms 客户端仍触发一次 SWR 刷新（补 visa 慢源行 + 最新值）。k8s web 部署 `FXRATE_API` 指向集群内 `http://fxrate:8080/v1/jsonrpc`（SSR 直连），`FXRATE_PROXY` 保持公网 URL 供浏览器 `/api/fxrate` 代理。
 - **加载骨架与 Web Vitals**：`app/loading.tsx` + `componets/tableSkeleton.tsx`（`ListTableSkeleton`/`MatrixTableSkeleton`，sticky 名称列 + 真实列名 + 8 行无假数据，共用 `LIST_COLUMNS`）让路由段等待与浏览器拉数阶段的骨架视觉一致，避免加载/就绪布局跳动；`web-vitals.tsx` 用 `useReportWebVitals` 记录 TTFB/FCP/LCP/CLS/INP 到环形缓冲（挂根 layout 跨路由常驻，静默、不发请求）。
 - **视图数据缓存（SWR）**：`index.tsx` 的 `pairCacheRef`/`matrixCacheRef` 按参数 key 存最近数据，同视图参数重拉先显旧数据再后台刷新；`/`↔`/matrix` 切换重挂载 `Index`，由 `tools.ts` 模块级 LRU 零网络恢复。已有**实际渲染报价**的后台刷新失败 → 继续展示旧快照 + 固定定位 warning（明示陈旧语义与重试入口，不插入布局不位移）；空快照不算陈旧。单对回调 `FXDetailsUpdate`（`{data, fastFailed}`）：`fastFailed=false` 按行合并只保留旧 `SLOW_SOURCES` 行、快源未返回即移除；`fastFailed=true` 保留全部旧行且**不清错误提示**，慢源结果只能追加。
-- **`tools.ts`**：`FXRate` 为浏览器默认 client 单例（兼容既有导入）；`getFXRateClient()` 统一入口——浏览器返回单例，服务端经 `React.cache` 返回请求级 client（防共享 `batch()/done()` 可变状态）。批量请求一律经 `runBatch(client, queue, signal?)` 兜底（保证 `done()` 被调、异常不残留污染后续请求）。`getCurrenciesDetails()` 按 `from-to-amount-p{precision}[-bfs]|来源支持指纹` 缓存（指纹含参与来源及其支持货币，变化自动失效）；`getRatesMatrix()` 用 `listFXRates`（key 含精度/方向 + 来源/支持指纹 + 排序后 `skipSources` 指纹）；源过滤条件「来源列表含 from 或 to 任一」（部分货币列表时缺失条目安全跳过），让后端 BFS 算交叉汇率（如 CNY↔CNH）；矩阵每格保留 `{middle, cash, remit, updated}`。
+- **`tools.ts`**：`FXRate` 为浏览器默认 client 单例（兼容既有导入）；`getFXRateClient()` 统一入口——浏览器返回单例，服务端经 `React.cache` 返回请求级 client（防共享 `batch()/done()` 可变状态）。批量请求一律经 `runBatch(client, queue, signal?)` 兜底（保证 `done()` 被调、异常不残留污染后续请求）。`getBackendInfo()` 与 `showCurrencyAllRates()` 除完成值 LRU 外还共享 in-flight promise，削平冷启动并发的 instanceInfo/listCurrencies RPC；客户端 footer 版本优先复用已完成的 `getCachedBackendInfo()`。`getCurrenciesDetails()` 按 `from-to-amount-p{precision}[-bfs]|来源支持指纹` 缓存（指纹含参与来源及其支持货币，变化自动失效）；`getRatesMatrix()` 用 `listFXRates`（key 含精度/方向 + 来源/支持指纹 + 排序后 `skipSources` 指纹）；源过滤条件「来源列表含 from 或 to 任一」（部分货币列表时缺失条目安全跳过），让后端 BFS 算交叉汇率（如 CNY↔CNH）；矩阵每格保留 `{middle, cash, remit, updated}`。
+
+## 后端批量提交
+
+`fxManager.updateMany()` 在共享 staging 图上处理单个来源的一批报价，所有条目成功后一次替换 live graph，失败则丢弃 staging；单条 `update()` 仍保持原子更新和输入不可变。来源刷新路径统一调用 `updateMany()`，减少大来源刷新期间的重复顶层复制。
 
 ## 单对视图
 

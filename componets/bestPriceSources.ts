@@ -1,5 +1,6 @@
 "use client"
 import * as React from "react"
+import { usePersistentState } from "./persistent-state"
 
 export const NON_BANK_SOURCES = [
 	"pboc",
@@ -17,36 +18,27 @@ export const NON_BANK_SOURCES = [
 const KEY = "fxrate-best-price-sources"
 
 export function useBestPriceSources() {
-	const [excluded, setExcluded] = React.useState<Set<string>>(
-		() => new Set(NON_BANK_SOURCES)
-	)
-	// hydration 门闩：读档前持久化 effect 不得写回，避免 StrictMode 双执行下用默认值覆盖存档
-	const [hydrated, setHydrated] = React.useState(false)
-
-	React.useEffect(() => {
+	const parse = React.useCallback((saved: string | null) => {
+		if (!saved) return new Set(NON_BANK_SOURCES)
 		try {
-			const saved = localStorage.getItem(KEY)
-			if (saved) {
-				const parsed: unknown = JSON.parse(saved)
-				if (Array.isArray(parsed)) {
-					setExcluded(new Set(parsed.filter((x) => typeof x == "string")))
-				}
-			}
+			const parsed: unknown = JSON.parse(saved)
+			return new Set(
+				Array.isArray(parsed) ? parsed.filter((x) => typeof x == "string") : NON_BANK_SOURCES,
+			)
 		} catch {
-			// localStorage 不可用时使用默认排除集
+			return new Set(NON_BANK_SOURCES)
 		}
-		setHydrated(true)
 	}, [])
-
-	// 提交后持久化：仅在 hydration 完成后写回当前已提交的排除集，事件处理器不再触碰 localStorage
-	React.useEffect(() => {
-		if (!hydrated) return
-		try {
-			localStorage.setItem(KEY, JSON.stringify(Array.from(excluded)))
-		} catch {
-			// localStorage 不可用时忽略持久化
-		}
-	}, [excluded, hydrated])
+	const serialize = React.useCallback(
+		(value: Set<string>) => JSON.stringify(Array.from(value)),
+		[],
+	)
+	const [excluded, setExcluded] = usePersistentState(
+		KEY,
+		new Set(NON_BANK_SOURCES),
+		parse,
+		serialize,
+	)
 
 	const toggle = (source: string) => {
 		setExcluded((prev) => {
@@ -61,11 +53,6 @@ export function useBestPriceSources() {
 	}
 
 	const reset = () => {
-		try {
-			localStorage.removeItem(KEY)
-		} catch {
-			// localStorage 不可用时忽略
-		}
 		setExcluded(new Set(NON_BANK_SOURCES))
 	}
 

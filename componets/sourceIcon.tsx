@@ -93,6 +93,7 @@ export function SourceIcon({
 				flexShrink: 0,
 			}}
 		>
+			{/* eslint-disable-next-line @next/next/no-img-element -- local SVG/PNG logos need onError fallback */}
 			<img
 				src={`/bank-logos/${source}.${LOGO_EXT[source] ?? "svg"}`}
 				alt=""

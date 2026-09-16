@@ -120,6 +120,25 @@ describe("prefetchDefaultView", () => {
 		expect(mockDetails).toHaveBeenCalledTimes(1)
 	})
 
+	it("冷启动并发请求共享同一条预取链路", async () => {
+		let release!: (value: typeof currencies) => void
+		mockShow.mockReturnValueOnce(
+			new Promise<typeof currencies>((resolve) => {
+				release = resolve
+			})
+		)
+
+		const first = prefetchDefaultView({})
+		const second = prefetchDefaultView({})
+		expect(mockShow).toHaveBeenCalledTimes(1)
+
+		release(currencies)
+		const [a, b] = await Promise.all([first, second])
+		expect(a.initialResult).toHaveLength(2)
+		expect(b.initialResult).toEqual(a.initialResult)
+		expect(mockDetails).toHaveBeenCalledTimes(1)
+	})
+
 	it("不同 precision 各自独立缓存（key 含 precision）", async () => {
 		await prefetchDefaultView({ precision: "2" })
 		await prefetchDefaultView({ precision: "4" })

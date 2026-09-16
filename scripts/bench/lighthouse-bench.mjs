@@ -12,6 +12,7 @@ import {
 	sleep,
 	withShutdown,
 } from "./harness.mjs"
+import { assertLighthouseSla } from "./lighthouse-sla.mjs"
 
 const DEFAULT_CATEGORIES = "performance"
 
@@ -22,6 +23,9 @@ const opts = parseFlags(
 		"chrome-port": (v) => Number(v),
 		"output-dir": (v) => v,
 		categories: (v) => v,
+		"max-fcp-ms": (v) => Number(v),
+		"max-lcp-ms": (v) => Number(v),
+		"min-performance-score": (v) => Number(v),
 	},
 	[
 		"usage: node scripts/bench/lighthouse-bench.mjs [options]",
@@ -29,6 +33,9 @@ const opts = parseFlags(
 		"  --chrome-port <port>           explicit Chrome remote-debugging port (default: free port)",
 		"  --output-dir <dir>             output directory (default: per-run dir under /tmp/fxrate-benchmark)",
 		"  --categories <a,b,c>           comma-separated category ids (default performance)",
+		"  --max-fcp-ms <n>               fail when FCP exceeds n milliseconds",
+		"  --max-lcp-ms <n>               fail when LCP exceeds n milliseconds",
+		"  --min-performance-score <n>    fail when score is below n (0-100)",
 	].join("\n"),
 )
 const presets =
@@ -49,6 +56,7 @@ const score = (lhr, id) => {
 	const cat = lhr.categories[id]
 	return cat ? Math.round(cat.score * 100) : null
 }
+
 
 let chrome = null
 let harness = null
@@ -122,5 +130,6 @@ await withShutdown(cleanup, async () => {
 			`  FCP=${fmt("first-contentful-paint")} LCP=${fmt("largest-contentful-paint")} TBT=${fmt("total-blocking-time")} CLS=${fmt("cumulative-layout-shift")} SI=${fmt("speed-index")} TTI=${fmt("interactive")}`,
 		)
 		console.log(`  total-ms=${lhr.timing?.total} runWarnings=${(lhr.runWarnings ?? []).length}`)
+		assertLighthouseSla(lhr, opts, preset)
 	}
 })

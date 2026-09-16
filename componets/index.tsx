@@ -11,7 +11,6 @@ import IconButton from "@mui/material/IconButton"
 import Tooltip from "@mui/material/Tooltip"
 import Alert from "@mui/material/Alert"
 import Button from "@mui/material/Button"
-import LinearProgress from "@mui/material/LinearProgress"
 import Snackbar from "@mui/material/Snackbar"
 import RefreshIcon from "@mui/icons-material/Refresh"
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz"
@@ -25,12 +24,12 @@ import Menu from "@mui/material/Menu"
 import TextField from "@mui/material/TextField"
 import { alpha, useTheme } from "@mui/material/styles"
 
-import CurrencyChooser from "./currencyChooser"
-import FXListGrid, { FXListProps, RelativeTime } from "./fxlistgrid"
-import FXMatrixGrid from "./fxmatrixgrid"
+import { FXListProps, RelativeTime } from "./fxlistgrid"
+import IndexContent from "./index-content"
 import Footer from "./footer"
 import {
 	showCurrencyAllRates,
+	getCachedBackendInfo,
 	getCurrenciesDetails,
 	getRatesMatrix,
 	FXRate,
@@ -39,8 +38,8 @@ import {
 	withTimeout,
 	isAbortError,
 } from "./tools"
-import { ListTableSkeleton, MatrixTableSkeleton } from "./tableSkeleton"
 import { useThemeMode } from "./theme"
+import { usePersistentState, useHydratedStorage } from "./persistent-state"
 import { infoResponse } from "@/lib/fxrate/src/client"
 import {
 	buildViewUrl,
@@ -48,7 +47,6 @@ import {
 	hasPairQuotes,
 	MATRIX_BASE_KEY,
 	MATRIX_REVERSE_KEY,
-	MATRIX_SLOW_SOURCES,
 	matrixViewCacheKey,
 	PAIR_FROM_KEY,
 	PAIR_REVERSE_KEY,
@@ -106,10 +104,18 @@ export default function Index({
 	const [amount, setAmount] = React.useState(
 		parseAmount(searchParams.get("amount"))
 	)
-	const [precision, setPrecision] = React.useState(
+	const [precisionState, setPrecision] = React.useState(
 		parsePrecision(searchParams.get("precision")) ?? 4
 	)
-	const [precisionHydrated, setPrecisionHydrated] = React.useState(false)
+	const precisionStored = useHydratedStorage(
+		"fxrate-precision",
+		null as number | null,
+		(value) => parsePrecision(value),
+	)
+	const precisionHydrated = true
+	const precision = searchParams.has("precision")
+		? precisionState
+		: precisionStored ?? precisionState
 	const [pairPreferencesHydrated, setPairPreferencesHydrated] =
 		React.useState(false)
 	const [matrixPreferencesHydrated, setMatrixPreferencesHydrated] =
@@ -166,15 +172,18 @@ export default function Index({
 	// pathname 变化（RSC 导航完成 / 浏览器前进后退）后：与用户最后意图一致则保留本地视图，
 	// 否则交还 pathname 决定（防止快速连续切换时视图闪跳）
 	React.useEffect(() => {
+		/* eslint-disable react-hooks/set-state-in-effect -- synchronizes URL navigation state */
 		setViewOverride((prev) => {
 			const expected: View = pathname == "/matrix" ? "matrix" : "pair"
 			return prev == expected ? prev : null
 		})
+		/* eslint-enable react-hooks/set-state-in-effect */
 	}, [pathname])
 
 	// URL 变化（含前进/后退与 Native History API 写入）只恢复当前路径所属状态。
 	// 矩阵 URL 不得覆盖单对货币与方向偏好，反之亦然。
 	React.useEffect(() => {
+		/* eslint-disable react-hooks/set-state-in-effect -- URL is an external source of truth */
 		const urlFrom = searchParams.get("from")
 		const urlTo = searchParams.get("to")
 		setAmount(parseAmount(searchParams.get("amount")))
@@ -188,25 +197,10 @@ export default function Index({
 			setPairFrom(urlFrom ?? "CNY")
 			setPairTo(urlTo ?? "USD")
 		}
+		/* eslint-enable react-hooks/set-state-in-effect */
 	}, [pathname, searchParams])
 
 	const PRECISION_KEY = "fxrate-precision"
-
-	React.useEffect(() => {
-		if (!searchParams.has("precision")) {
-			try {
-				const saved = localStorage.getItem(PRECISION_KEY)
-				if (saved) {
-					const savedPrecision = parsePrecision(saved)
-					if (savedPrecision != null) setPrecision(savedPrecision)
-				}
-			} catch {
-				// localStorage 不可用时使用默认精度
-			}
-		}
-		setPrecisionHydrated(true)
-	}, [])
-
 	React.useEffect(() => {
 		if (!precisionHydrated) return
 		try {
@@ -252,10 +246,12 @@ export default function Index({
 	)
 
 	// 交叉汇率开关：开启后单对视图请求带 bfs=true，无直连报价时经中间货币折算
-	const CROSS_KEY = "fxrate-cross-rates"
-	const [crossRates, setCrossRates] = React.useState(false)
-	// hydration 门闩：读档前持久化 effect 不得写回，避免 StrictMode 双执行下用默认值覆盖存档
-	const [crossHydrated, setCrossHydrated] = React.useState(false)
+	const [crossRates, setCrossRates] = usePersistentState(
+		"fxrate-cross-rates",
+		false,
+		(value) => value == "1" || value == "true",
+		(value) => (value ? "1" : "0"),
+	)
 	// 移动端精度弹层锚点
 	const [precisionAnchor, setPrecisionAnchor] =
 		React.useState<HTMLElement | null>(null)
@@ -263,28 +259,10 @@ export default function Index({
 	const [overflowAnchor, setOverflowAnchor] =
 		React.useState<HTMLElement | null>(null)
 
-	React.useEffect(() => {
-		try {
-			const saved = localStorage.getItem(CROSS_KEY)
-			if (saved == "1" || saved == "true") setCrossRates(true)
-		} catch {
-			// localStorage 不可用时保持默认关闭
-		}
-		setCrossHydrated(true)
-	}, [])
-
-	// 提交后持久化：仅在 hydration 完成后写回，事件处理器不再触碰 localStorage
-	React.useEffect(() => {
-		if (!crossHydrated) return
-		try {
-			localStorage.setItem(CROSS_KEY, crossRates ? "1" : "0")
-		} catch {
-			// localStorage 不可用时忽略持久化
-		}
-	}, [crossRates, crossHydrated])
 
 	// 非当前视图只能从自己的存档恢复；当前路径的 URL 始终优先。
 	React.useEffect(() => {
+		/* eslint-disable react-hooks/set-state-in-effect -- localStorage hydration */
 		const savedReverse = readLS(PAIR_REVERSE_KEY)
 		setPairReverse(savedReverse == "1" || savedReverse == "true")
 		if (initialIsMatrix) {
@@ -294,9 +272,11 @@ export default function Index({
 			if (savedTo) setPairTo(savedTo)
 		}
 		setPairPreferencesHydrated(true)
-	}, [])
+		/* eslint-enable react-hooks/set-state-in-effect */
+	}, [initialIsMatrix])
 
 	React.useEffect(() => {
+		/* eslint-disable react-hooks/set-state-in-effect -- localStorage hydration */
 		if (!initialIsMatrix) {
 			const savedBase = readLS(MATRIX_BASE_KEY)
 			if (savedBase) {
@@ -306,7 +286,8 @@ export default function Index({
 			}
 		}
 		setMatrixPreferencesHydrated(true)
-	}, [])
+		/* eslint-enable react-hooks/set-state-in-effect */
+	}, [initialIsMatrix])
 
 	// 仅由单对视图持久化 pair 状态，矩阵 URL/state 永远不会写入这些 key。
 	React.useEffect(() => {
@@ -467,8 +448,9 @@ export default function Index({
 				setCurrencies(cur)
 				setLoadError(null)
 				try {
+					const cachedInfo = getCachedBackendInfo()
 					const info = await withTimeout(
-						Promise.resolve(FXRate.info()),
+						Promise.resolve(cachedInfo ?? FXRate.info()),
 						5000
 					)
 					if (!cancelled && info) {
@@ -587,10 +569,12 @@ export default function Index({
 	// 防止陈旧响应（旧货币对/矩阵视图期间完成）落地污染 result/loading/pairError；
 	// 同时 abort 在途请求，取消未发送与可取消的网络工作
 	React.useEffect(() => {
+		/* eslint-disable react-hooks/set-state-in-effect -- URL state invalidates active work */
 		pairReqRef.current++
 		pairAbortRef.current?.abort()
 		pairAbortRef.current = null
 		setPairError(null)
+		/* eslint-enable react-hooks/set-state-in-effect */
 	}, [
 		view,
 		pairReverse,
@@ -606,10 +590,12 @@ export default function Index({
 	// 污染 matrixCacheRef/matrix/matrixSnapshot/loading/error；
 	// 同时 abort 在途请求（与单对视图独立，互不影响）
 	React.useEffect(() => {
+		/* eslint-disable react-hooks/set-state-in-effect -- clearing stale request error */
 		matrixReqRef.current++
 		matrixAbortRef.current?.abort()
 		matrixAbortRef.current = null
 		setMatrixError(null)
+		/* eslint-enable react-hooks/set-state-in-effect */
 	}, [view, matrixBase, amount, precision, matrixReverse])
 
 	// 货币/金额变化：防抖 300ms 拉取（命中缓存时零请求）；
@@ -627,7 +613,7 @@ export default function Index({
 		}
 		const timer = setTimeout(() => fetchPair(false), 300)
 		return () => clearTimeout(timer)
-	}, [fetchPair, view, activePairKey])
+	}, [currencies, fetchPair, view, activePairKey])
 
 	// 自动刷新：60s，仅页面可见时强制重拉（矩阵视图激活时不运行）
 	React.useEffect(() => {
@@ -637,7 +623,7 @@ export default function Index({
 			fetchPair(true)
 		}, 60000)
 		return () => clearInterval(interval)
-	}, [fetchPair, view])
+	}, [currencies, fetchPair, view])
 
 	const fetchMatrix = React.useCallback(
 		(force: boolean) => {
@@ -758,6 +744,7 @@ export default function Index({
 			precision
 		)
 		const generation = ++urlWriteGenerationRef.current
+		const generationRef = urlWriteGenerationRef
 		if (pendingUrlTimerRef.current != null) {
 			clearTimeout(pendingUrlTimerRef.current)
 		}
@@ -765,7 +752,7 @@ export default function Index({
 			if (pendingUrlTimerRef.current == timer) {
 				pendingUrlTimerRef.current = null
 			}
-			if (urlWriteGenerationRef.current != generation) return
+			if (generationRef.current != generation) return
 			if (window.location.pathname != scheduledPath) return
 			const current = window.location.pathname + window.location.search
 			if (current == nextUrl) return
@@ -777,8 +764,8 @@ export default function Index({
 				clearTimeout(timer)
 				pendingUrlTimerRef.current = null
 			}
-			if (urlWriteGenerationRef.current == generation) {
-				urlWriteGenerationRef.current++
+			if (generationRef.current == generation) {
+				generationRef.current++
 			}
 		}
 	}, [
@@ -1187,140 +1174,40 @@ export default function Index({
 					</Box>
 				</Box>
 
-			<Box
-				sx={{
-					width: "100%",
-					maxWidth: 1080,
-					mx: "auto",
-					px: { xs: 1, sm: 2 },
-					py: 2,
-				}}
-			>
-				{loadError ? (
-					<Alert
-						severity="error"
-						action={
-							<Button
-								color="inherit"
-								size="small"
-								onClick={() =>
-									setCurrenciesLoadAttempt((attempt) => attempt + 1)
-								}
-							>
-								重试
-							</Button>
-						}
-					>
-						{loadError}
-					</Alert>
-				) : (
-					<>
-						<CurrencyChooser
-							currencies={allCurrencies}
-							from={view == "matrix" ? matrixBase : pairFrom}
-							to={view == "matrix" ? matrixBase : pairTo}
-							amount={amount}
-							onFromChange={
-								view == "matrix" ? setMatrixBase : setPairFrom
-							}
-							onToChange={setPairTo}
-							onSwap={handleSwap}
-							onAmountChange={setAmount}
-							showTo={view == "pair"}
-							fromLabel={
-								view == "matrix" && matrixReverse
-									? "目标货币"
-									: undefined
-							}
-							reverse={
-								view == "matrix" ? matrixReverse : pairReverse
-							}
-							onReverseChange={handleReverseToggle}
-						/>
-
-						<Box sx={{ mt: 2 }}>
-							{view == "pair" ? (
-								<>
-									{pairError && !hasPairQuotes(visiblePair) && (
-										<Alert
-											severity="error"
-											action={
-												<Button
-													color="inherit"
-													size="small"
-													onClick={() => fetchPair(true)}
-												>
-													重试
-												</Button>
-											}
-											sx={{ mb: 1 }}
-										>
-											{pairError}
-										</Alert>
-									)}
-									{visiblePairLoading && visiblePair != null && (
-										<LinearProgress sx={{ mb: 1 }} />
-									)}
-									{visiblePairLoading && visiblePair == null ? (
-										<ListTableSkeleton />
-									) : visiblePair && visiblePair.length > 0 ? (
-										<FXListGrid
-											props={visiblePair}
-											from={pairReqFrom}
-											to={pairReqTo}
-											amount={amount}
-										/>
-									) : !pairError ? (
-										<Alert severity="info">
-											该货币对暂无可用的银行报价，试试其他货币对
-										</Alert>
-									) : null}
-								</>
-							) : (
-								<>
-									{matrixError && !hasMatrixQuotes(visibleMatrix) && (
-										<Alert
-											severity="error"
-											action={
-												<Button
-													color="inherit"
-													size="small"
-													onClick={() => fetchMatrix(true)}
-												>
-													重试
-												</Button>
-											}
-											sx={{ mb: 1 }}
-										>
-											{matrixError}
-										</Alert>
-									)}
-									{visibleMatrixLoading && visibleMatrix != null && (
-										<LinearProgress sx={{ mb: 1 }} />
-									)}
-									{visibleMatrixLoading && visibleMatrix == null ? (
-										<MatrixTableSkeleton />
-									) : visibleMatrix && Object.keys(visibleMatrix).length > 0 ? (
-									<FXMatrixGrid
-										data={visibleMatrix}
-										from={matrixBase}
-											amount={amount}
-											precision={precision}
-											slowSources={MATRIX_SLOW_SOURCES}
-											sourceCurrencies={currencies ?? undefined}
-											crossRates={crossRates}
-										reverse={matrixReverse}
-											refreshGeneration={matrixExtraRowsGeneration}
-										/>
-									) : !matrixError ? (
-										<Alert severity="info">暂无矩阵数据</Alert>
-									) : null}
-								</>
-							)}
-						</Box>
-					</>
-				)}
-			</Box>
+			<IndexContent
+				view={view}
+				currencies={currencies}
+				allCurrencies={allCurrencies}
+				pairFrom={pairFrom}
+				pairTo={pairTo}
+				pairReqFrom={pairReqFrom}
+				pairReqTo={pairReqTo}
+				pairReverse={pairReverse}
+				matrixBase={matrixBase}
+				matrixReverse={matrixReverse}
+				amount={amount}
+				precision={precision}
+				crossRates={crossRates}
+				result={result}
+				matrix={matrix}
+				visiblePair={visiblePair}
+				visibleMatrix={visibleMatrix}
+				visiblePairLoading={visiblePairLoading}
+				visibleMatrixLoading={visibleMatrixLoading}
+				pairError={pairError}
+				matrixError={matrixError}
+				loadError={loadError}
+				setCurrenciesLoadAttempt={setCurrenciesLoadAttempt}
+				setPairFrom={setPairFrom}
+				setPairTo={setPairTo}
+				setMatrixBase={setMatrixBase}
+				setAmount={setAmount}
+				handleSwap={handleSwap}
+				handleReverseToggle={handleReverseToggle}
+				fetchPair={fetchPair}
+				fetchMatrix={fetchMatrix}
+				matrixExtraRowsGeneration={matrixExtraRowsGeneration}
+			/>
 			<Snackbar
 				open={Boolean(activeViewError && hasVisibleData)}
 				anchorOrigin={{ vertical: "bottom", horizontal: "center" }}

@@ -123,6 +123,25 @@ describe("showCurrencyAllRates", () => {
 		expect(r2).toEqual(r1)
 	})
 
+	it("并发冷启动请求共享同一条 instanceInfo RPC", async () => {
+		clearBackendInfoCache()
+		const { stats, handles } = createDeferredBatchMock({
+			instanceInfo: () => ({
+				environment: "test",
+				sources: ["bankA"],
+				version: "fxrate@mock",
+				status: "ok",
+				apiVersion: "1",
+			}),
+		})
+
+		const first = getBackendInfo()
+		const second = getBackendInfo()
+		expect(stats.methods.instanceInfo).toBe(1)
+		handles[0].resolve()
+		await expect(Promise.all([first, second])).resolves.toHaveLength(2)
+	})
+
 	it("getBackendInfo 复用 showCurrencyAllRates 已取的 instanceInfo（SSR 路径只发一次）", async () => {
 		const stats = createBatchMock({
 			instanceInfo: () => ({

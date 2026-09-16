@@ -1,6 +1,6 @@
 {
   "name": "fxrate-web",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "private": true,
   "scripts": {
     "full-dev": "cd lib/fxrate && yarn dev & FXRATE_API=http://127.0.0.1:8080/jsonrpc FXRATE_PROXY=http://127.0.0.1:8080/jsonrpc yarn dev",

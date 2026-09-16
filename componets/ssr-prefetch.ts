@@ -28,10 +28,14 @@ const empty: SSRPrefetchData = {
 
 // 服务端 SWR 缓存：模块级 Map（每个 server 进程一份），key 为请求参数签名
 const swrCache = new Map<string, { data: SSRPrefetchData; at: number }>()
+// 缓存尚未产出时也要合并同一参数的 SSR 请求。否则冷启动/并发刷新会让每个
+// RSC 请求各自查询全量来源，缓存只能减少下一轮请求而无法削平瞬时峰值。
+const swrInFlight = new Map<string, Promise<SSRPrefetchData>>()
 
 // 测试用：清空 SWR 缓存（避免测试间互相命中）
 export function clearSSRPrefetchCache(): void {
 	swrCache.clear()
+	swrInFlight.clear()
 }
 
 function first(v: string | string[] | undefined): string | undefined {
@@ -74,49 +78,59 @@ export async function prefetchDefaultView(
 	const key = `CNY-USD-100-p${precision}`
 	const hit = swrCache.get(key)
 	if (hit && Date.now() - hit.at < SWR_TTL_MS) return hit.data
+	const inFlight = swrInFlight.get(key)
+	if (inFlight) return inFlight
 
-	try {
-		// 注意：info() 必须在 showCurrencyAllRates 之后串行调用——后者内部开启 batch，
-		// 并行的 info() 会被吞进批量队列拿不到结果。
-		// 经 getBackendInfo() 走 60s 短缓存：showCurrencyAllRates 内部已取过一次
-		// instanceInfo，这里通常直接命中缓存，不再发第二次 RPC。
-		const cur = await withTimeout(showCurrencyAllRates(), SSR_TIMEOUT_MS)
-		if (!cur) return empty
+	const holder: { promise?: Promise<SSRPrefetchData> } = {}
+	const request = (async () => {
+		try {
+			// 注意：info() 必须在 showCurrencyAllRates 之后串行调用——后者内部开启 batch，
+			// 并行的 info() 会被吞进批量队列拿不到结果。
+			// 经 getBackendInfo() 走 60s 短缓存：showCurrencyAllRates 内部已取过一次
+			// instanceInfo，这里通常直接命中缓存，不再发第二次 RPC。
+			const cur = await withTimeout(showCurrencyAllRates(), SSR_TIMEOUT_MS)
+			if (!cur) return empty
 
-		const info = await withTimeout(
-			Promise.resolve(getBackendInfo()),
-			SSR_TIMEOUT_MS
-		)
-		const initialBackendVersion =
-			info != null && typeof info == "object" && "version" in info
-				? String(info.version)
-				: ""
+			const info = await withTimeout(
+				Promise.resolve(getBackendInfo()),
+				SSR_TIMEOUT_MS
+			)
+			const initialBackendVersion =
+				info != null && typeof info == "object" && "version" in info
+					? String(info.version)
+					: ""
 
-		const result = await withTimeout(
-			getCurrenciesDetails(cur, "USD", "CNY", undefined, {
-				amount: 100,
-				precision,
-			}),
-			SSR_TIMEOUT_MS
-		)
-		if (!result || result.length == 0) return empty
+			const result = await withTimeout(
+				getCurrenciesDetails(cur, "USD", "CNY", undefined, {
+					amount: 100,
+					precision,
+				}),
+				SSR_TIMEOUT_MS
+			)
+			if (!result || result.length == 0) return empty
 
-		const data: SSRPrefetchData = {
-			initialCurrencies: cur,
-			initialResult: result.map((r) => ({
-				...r,
-				// 防御后端个别源返回无效日期导致 toISOString 抛错
-				updated: Number.isNaN(r.updated.getTime())
-					? new Date().toISOString()
-					: r.updated.toISOString(),
-			})),
-			initialBackendVersion,
+			const data: SSRPrefetchData = {
+				initialCurrencies: cur,
+				initialResult: result.map((r) => ({
+					...r,
+					// 防御后端个别源返回无效日期导致 toISOString 抛错
+					updated: Number.isNaN(r.updated.getTime())
+						? new Date().toISOString()
+						: r.updated.toISOString(),
+				})),
+				initialBackendVersion,
+			}
+			swrCache.set(key, { data, at: Date.now() })
+			return data
+		} catch (e) {
+			// 预取失败降级为客户端加载，不影响首屏
+			console.error("SSR 预取失败，降级为客户端加载:", e)
+			return empty
+		} finally {
+			if (swrInFlight.get(key) == holder.promise) swrInFlight.delete(key)
 		}
-		swrCache.set(key, { data, at: Date.now() })
-		return data
-	} catch (e) {
-		// 预取失败降级为客户端加载，不影响首屏
-		console.error("SSR 预取失败，降级为客户端加载:", e)
-		return empty
-	}
+	})()
+	holder.promise = request
+	swrInFlight.set(key, request)
+	return request
 }

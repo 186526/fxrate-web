@@ -19,6 +19,13 @@ import {
 	stopChildren,
 } from "../../scripts/bench/harness.mjs"
 
+const socketAvailable = await getFreePort()
+	.then(() => true)
+	.catch((error: unknown) => {
+		if (error instanceof Error && /EPERM|EACCES/.test(error.message)) return false
+		throw error
+	})
+
 describe("scripts/bench harness", () => {
 	it("parseFlags accepts --key value and --key=value forms", () => {
 		const spec = {
@@ -77,7 +84,7 @@ describe("scripts/bench harness", () => {
 		}
 	})
 
-	it("getFreePort returns a bindable port", async () => {
+	it.skipIf(!socketAvailable)("getFreePort returns a bindable port", async () => {
 		const port = await getFreePort()
 		expect(port).toBeGreaterThan(0)
 		await new Promise((resolve, reject) => {
@@ -97,7 +104,7 @@ describe("scripts/bench harness", () => {
 		expect(Date.now() - started).toBeLessThan(1000)
 	})
 
-	it("stopChildren SIGTERMs a cooperative child", async () => {
+	it.skipIf(!socketAvailable)("stopChildren SIGTERMs a cooperative child", async () => {
 		const child = spawn(process.execPath, [
 			"-e",
 			"process.on('SIGTERM',()=>process.exit(0)); console.log('ready'); setInterval(()=>{},1000)",
@@ -111,7 +118,7 @@ describe("scripts/bench harness", () => {
 		expect(Date.now() - started).toBeLessThan(2000)
 	})
 
-	it("stopChildren escalates to SIGKILL for a SIGTERM-ignoring child", async () => {
+	it.skipIf(!socketAvailable)("stopChildren escalates to SIGKILL for a SIGTERM-ignoring child", async () => {
 		const child = spawn(process.execPath, [
 			"-e",
 			"process.on('SIGTERM',()=>{}); console.log('ready'); setInterval(()=>{},1000)",
