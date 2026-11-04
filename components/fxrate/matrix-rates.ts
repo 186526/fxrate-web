@@ -108,7 +108,10 @@ const matrixCache = new LRUCache<string, RatesMatrix>({
 	ttl: 1000 * 60 * 5,
 })
 
-// 测试用：清空矩阵缓存（模块级缓存跨用例存活，避免用例间互相命中）
+// 测试用：清空矩阵缓存（模块级缓存跨用例存活，避免用例间互相命中）。
+// 并发闸门 `matrixRowActiveRequests` / `matrixRowWaiters` 故意不清：它们只描述
+// 当前在途补查行的名额占用，不持有数据；在途请求结束时会自行释放名额，清空它们
+// 反而会让等待中的请求拿不到名额。
 export function clearMatrixCache(): void {
 	matrixCache.clear()
 }

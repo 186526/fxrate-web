@@ -49,13 +49,6 @@ registerDataCacheClearHook(() => {
 	clearBundleCaches()
 })
 
-// 测试用：清空本 bundle 的 SWR 缓存与数据层缓存，保留登记在 globalThis 的钩子，
-// 供 vitest 的 beforeEach 使用（模块级缓存跨用例存活）
-export function clearPrefetchCaches(): void {
-	clearSSRPrefetchCache()
-	clearBundleCaches()
-}
-
 function first(v: string | string[] | undefined): string | undefined {
 	return Array.isArray(v) ? v[0] : v
 }

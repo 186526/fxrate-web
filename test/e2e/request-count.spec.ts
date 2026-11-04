@@ -27,7 +27,7 @@ test.describe("request-count", () => {
 		await resetE2EState()
 	})
 
-	test("SSR 首屏：浏览器 hydration 零货币列表/版本请求；切矩阵 +6；切回 pair 数据零新增", async ({
+	test("SSR 首屏：浏览器 hydration 零货币列表/版本请求；切矩阵 +3；切回 pair 数据零新增", async ({
 		page,
 	}) => {
 		const mock = mockJsonRpcRoutes(page)
