@@ -62,6 +62,11 @@ const slowSourceLatestGen = new LRUCache<string, number>({
 })
 let slowSourceGenCounter = 0
 
+// 测试用：清空单对报价缓存（模块级缓存跨用例存活，避免用例间互相命中）
+export function clearPairRatesCache(): void {
+	cache.clear()
+}
+
 export async function getCurrenciesDetails(
 	currencies: { [source: string]: string[] },
 	toCurrency: string,

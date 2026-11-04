@@ -108,6 +108,11 @@ const matrixCache = new LRUCache<string, RatesMatrix>({
 	ttl: 1000 * 60 * 5,
 })
 
+// 测试用：清空矩阵缓存（模块级缓存跨用例存活，避免用例间互相命中）
+export function clearMatrixCache(): void {
+	matrixCache.clear()
+}
+
 // 交叉汇率响应在 fxRateResponse 基础上多了 path 字段（client 类型未声明，运行时已透传）；
 // alias 为 CNY/CNH 归一化提示：源只用 CNH 报价时实际使用 CNH 汇率（如 dbs/ocbc）
 interface FXRateWithPath extends fxRateResponse {

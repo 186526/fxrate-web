@@ -29,6 +29,13 @@ export function clearBackendInfoCache(): void {
 	infoInFlight = null
 }
 
+// 测试用：清空货币列表缓存。测试切换 mock 场景（来源集合变化）后必须清空，
+// 否则 5 分钟 TTL 内一直返回旧来源的列表
+export function clearCurrenciesCache(): void {
+	currenciesCache.clear()
+	currenciesInFlight = null
+}
+
 // 客户端首屏先取货币列表再展示后端版本时，允许调用方复用刚完成的
 // instanceInfo，避免为了 footer 再发一次相同 RPC。只返回已完成缓存，不会
 // 启动网络请求；需要强一致/缓存未命中时仍调用 getBackendInfo 或 client.info。
