@@ -76,7 +76,9 @@ const acquireMatrixRowSlot = (signal?: AbortSignal): Promise<() => void> => {
 			waiter.onAbort = () => {
 				const index = matrixRowWaiters.indexOf(waiter)
 				if (index >= 0) matrixRowWaiters.splice(index, 1)
-			reject(createAbortError())
+				waiter.reject(createAbortError())
+				// 被移除的等待者不再占用名额，把名额交给下一位
+				releaseMatrixRowSlot()
 			}
 			signal.addEventListener("abort", waiter.onAbort, { once: true })
 		}

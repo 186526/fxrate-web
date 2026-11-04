@@ -69,7 +69,7 @@ export const sourceRatesURL: Record<string, string> = {
 	"icbca": "https://www.icbcasia.com/hk/sc/personal/banking/rate/foreign-exchange-rate/default.html",
 	"cncbi": "https://www.cncbinternational.com/rate-table/exchange_rate_en.html",
 	"ccba": "https://www.asia.ccb.com/hongkong_sc/personal/accounts/exchange_rate_enquiry.html",
-	"cmbwl": "https://www.cmbwl.com/wbl_corporate/cn/personal/investments/financial-information/exchange-rates/index.html",
+	"cmbwl": "https://www.cmbwinglungbank.com/wlb_corporate/cn/personal/investments/financial-information/exchange-rates/index.html",
 }
 
 // 来源是否有官方牌价页链接（无映射的来源返回空）
