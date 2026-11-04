@@ -159,3 +159,16 @@ describe("FXListGrid 斑马纹 / 宽度规则", () => {
 		expect(window.getComputedStyle(cell).textAlign).toBe("right")
 	})
 })
+
+describe("FXListGrid 参与高亮弹层", () => {
+	it("全选后关闭弹层", async () => {
+		const user = (await import("@testing-library/user-event")).default
+		renderList()
+
+		await user.click(screen.getByRole("button", { name: "参与高亮 3/3 家" }))
+		expect(screen.getByRole("checkbox", { name: /bankA/ })).toBeInTheDocument()
+
+		await user.click(screen.getByRole("button", { name: "全选" }))
+		expect(screen.queryByRole("checkbox")).not.toBeInTheDocument()
+	})
+})

@@ -608,3 +608,16 @@ describe("矩阵表格语义", () => {
 		expect(style.overflow).toBe("hidden")
 	})
 })
+
+describe("FXMatrixGrid 参与高亮弹层", () => {
+	it("全选后关闭弹层", async () => {
+		const user = userEvent.setup()
+		renderGrid()
+
+		await user.click(screen.getByRole("button", { name: "参与高亮 1/1 家" }))
+		expect(screen.getByRole("checkbox", { name: /bankA/ })).toBeInTheDocument()
+
+		await user.click(screen.getByRole("button", { name: "全选" }))
+		expect(screen.queryByRole("checkbox")).not.toBeInTheDocument()
+	})
+})

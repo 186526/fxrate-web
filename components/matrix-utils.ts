@@ -14,6 +14,40 @@ export type MatrixDisplayData = { [source: string]: MatrixRow }
 
 export type PriceType = "middle" | "cash" | "remit"
 
+// 默认显示的常用货币（按产品定义顺序展示）
+export const DEFAULT_COMMON_CURRENCIES = [
+	"USD",
+	"EUR",
+	"JPY",
+	"HKD",
+	"GBP",
+	"AUD",
+	"CAD",
+	"CHF",
+	"SGD",
+	"CNH",
+	"KRW",
+	"THB",
+]
+
+export const MATRIX_CURRENCIES_KEY = "fxrate-matrix-currencies"
+
+// 常用货币优先、其余按字母序
+export const compareCurrencies = (a: string, b: string): number => {
+	const aIndex = DEFAULT_COMMON_CURRENCIES.indexOf(a)
+	const bIndex = DEFAULT_COMMON_CURRENCIES.indexOf(b)
+	if (aIndex >= 0 || bIndex >= 0) {
+		if (aIndex < 0) return 1
+		if (bIndex < 0) return -1
+		return aIndex - bIndex
+	}
+	return a.localeCompare(b)
+}
+
+// 额外行来源的加载状态：自动补查失败（error）可区分、可重试，
+// 不再被一次性 ref 永久去重
+export type SourceLoadStatus = "idle" | "loading" | "success" | "error"
+
 export const priceTypeLabels: { [k in PriceType]: string } = {
 	middle: "中间价",
 	cash: "现钞",

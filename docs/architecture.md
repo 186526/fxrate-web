@@ -7,15 +7,29 @@
 ```
 app/                 # 路由（layout/page 默认视图 SSR 预取+薄壳降级、loading 骨架、matrix 薄壳）
 components/          # 组件与前端模块
-  index.tsx          # 客户端主组件（orchestrator）：状态、拉数、视图切换、视图缓存、sticky Header/Footer
-  index-content.tsx  # 报价/矩阵内容渲染与加载/错误状态展示（由 index 编排数据）
-  persistent-state.ts# useSyncExternalStore 驱动的 localStorage 持久化状态，SSR 返回稳定默认值
+  index.tsx          # 默认导出 components/home/home，保持既有导入路径
+  home/home.tsx      # 首页编排：只把各 Hook 的结果接到 Header / 内容区 / Footer，并负责 URL 同步与卸载取消
+  home/use-view-navigation.ts # 视图/货币/方向/金额/URL 精度状态、URL→state 恢复、偏好持久化、tab 切换
+  home/use-pair-data.ts       # 单对数据：keyed 快照、SWR 缓存、代际守卫、视图级 AbortController
+  home/use-matrix-data.ts     # 矩阵数据：同上，另含 refresh() 推进矩阵补查代际
+  home/use-currencies.ts      # 来源货币列表与后端版本（薄壳下客户端拉取，5s 超时降级）
+  home/use-precision.ts       # 精度偏好（挂载后才写回存储）与交叉汇率开关
+  home/header.tsx / home/status-bar.tsx # 顶栏（Tabs、换向、金额、精度、刷新）与状态条（更新时间/错误）
+  index-content.tsx  # 报价/矩阵内容渲染与加载/错误状态展示（由 home 编排数据）
+  persistent-state.ts# useSyncExternalStore 驱动的 localStorage 持久化状态，SSR 返回稳定默认值；useHydratedStorage 额外给出挂载标记
   apidocs.tsx / api-docs/  # API 文档页 orchestrator + typed endpoint model、请求协调器、导航/工作台组件
   currencyChooser.tsx # 货币选择器（受控 Autocomplete + 换向 + 金额；矩阵视图只显示基准货币/金额）
-  fxlistgrid.tsx     # 单对报价表（排序、最优价高亮、相对更新时间、首列 sticky、来源 logo）
-  fxmatrixgrid.tsx   # 全对矩阵表（source × 货币，现钞/现汇/中间价切换、列高亮、常用币种筛选、列头国旗）
-  matrix-utils.ts    # fxmatrixgrid 的纯函数：值归一/格式/取值、反向路径方向化、单元格字段级合并
-  view-utils.ts      # index 的视图层纯函数：URL 构造与解析、缓存 key、快照有效性判定、视图记忆读写
+  fxlistgrid.tsx     # 单对报价表（列表渲染、最优价高亮、首列 sticky、来源 logo、单元格统计）
+  pair-utils.ts      # 单对视图纯函数：列定义、行构造/过滤/排序、最优价与列统计
+  bestPricePickerPopover.tsx # 「参与最优价高亮」弹层，单对与矩阵共用；全选与恢复默认后关闭弹层；单对视图每次打开清空搜索词
+  fxmatrixgrid.tsx   # 全对矩阵表编排：合并 useExtraRows 的结果并渲染表头/表体
+  matrix/matrix-table.tsx     # 矩阵表体与单元格渲染（列高亮、列头国旗、sticky 首列与角落格）
+  matrix/display.ts           # 矩阵展示层纯函数：列值取值、单元格格式化、可见货币与来源
+  matrix/currency-picker.tsx  # 「显示货币」弹层（搜索、勾选、恢复默认）
+  matrix/use-extra-rows.ts    # 额外行补查：keyed 快照、auto-load 状态机、baseData 合并、加载/重试
+  matrix/use-visible-currencies.ts # 可见货币集合与 localStorage 持久化
+  matrix-utils.ts    # fxmatrixgrid 的纯函数与常量：值归一/格式/取值、反向路径方向化、单元格字段级合并
+  view-utils.ts      # 视图层纯函数：URL 构造与解析、缓存 key、快照有效性判定、视图记忆读写、默认精度
   footer.tsx         # 页脚（版权/by 链接、前后端版本 tooltip、GitHub 链接）
   bestPriceSources.ts# 最优价高亮来源集合 hook（默认排除央行/卡组织，localStorage 持久化）
   sourceIcon.tsx     # 来源图标（本地 logo 优先，类型图标兜底）+ 货币国旗映射
@@ -49,7 +63,7 @@ public/fonts/        # noto-color-emoji-flags.woff2（Windows 国旗字形分片
 
 - **数据流**：`app/page.tsx` 仅对默认视图（`/` 且参数缺省或默认 from=CNY/to=USD/amount=100/precision=4）做 SSR 预取（`ssr-prefetch.ts` → `showCurrencyAllRates()` + `info()` + `getCurrenciesDetails()`），结果以 `initialCurrencies`/`initialResult`/`initialBackendVersion` props 随 RSC 下发，hydration 不重复拉货币列表/版本；服务端模块级 SWR 缓存 TTL 45s + 8s `withTimeout`，同一 precision 的并发 RSC 请求共享 in-flight 预取链路，任何失败/超时/空结果降级为薄壳（客户端照常自拉），绝不阻塞首屏。**非默认参数/矩阵视图保持纯客户端，URL 参数变化绝不触发服务端数据请求**（历史卡顿根因）；`/matrix` 路由仍是薄壳。挂载后 300ms 客户端仍触发一次 SWR 刷新（补 visa 慢源行 + 最新值）。k8s web 部署 `FXRATE_API` 指向集群内 `http://fxrate:8080/v1/jsonrpc`（SSR 直连），`FXRATE_PROXY` 保持公网 URL 供浏览器 `/api/fxrate` 代理。
 - **加载骨架与 Web Vitals**：`app/loading.tsx` + `components/tableSkeleton.tsx`（`ListTableSkeleton`/`MatrixTableSkeleton`，sticky 名称列 + 真实列名 + 8 行无假数据，共用 `LIST_COLUMNS`）让路由段等待与浏览器拉数阶段的骨架视觉一致，避免加载/就绪布局跳动；`web-vitals.tsx` 用 `useReportWebVitals` 记录 TTFB/FCP/LCP/CLS/INP 到环形缓冲（挂根 layout 跨路由常驻，静默、不发请求）。
-- **视图数据缓存（SWR）**：`index.tsx` 的 `pairCacheRef`/`matrixCacheRef` 按参数 key 存最近数据，同视图参数重拉先显旧数据再后台刷新；`/`↔`/matrix` 切换重挂载 `Index`，由 `tools.ts` 模块级 LRU 零网络恢复。已有**实际渲染报价**的后台刷新失败 → 继续展示旧快照 + 固定定位 warning（明示陈旧语义与重试入口，不插入布局不位移）；空快照不算陈旧。单对回调 `FXDetailsUpdate`（`{data, fastFailed}`）：`fastFailed=false` 按行合并只保留旧 `SLOW_SOURCES` 行、快源未返回即移除；`fastFailed=true` 保留全部旧行且**不清错误提示**，慢源结果只能追加。
+- **视图数据缓存（SWR）**：`home/use-pair-data.ts` 的 `pairCacheRef` 与 `home/use-matrix-data.ts` 的 `matrixCacheRef` 按参数 key 存最近数据，同视图参数重拉先显旧数据再后台刷新；`/`↔`/matrix` 切换重挂载 `Index`，由 `tools.ts` 模块级 LRU 零网络恢复。已有**实际渲染报价**的后台刷新失败 → 继续展示旧快照 + 固定定位 warning（明示陈旧语义与重试入口，不插入布局不位移）；空快照不算陈旧。单对回调 `FXDetailsUpdate`（`{data, fastFailed}`）：`fastFailed=false` 按行合并只保留旧 `SLOW_SOURCES` 行、快源未返回即移除；`fastFailed=true` 保留全部旧行且**不清错误提示**，慢源结果只能追加。
 - **`tools.ts` 与 `components/fxrate/`**：`tools.ts` 只做 re-export，实现分布在 `components/fxrate/` 八个模块：`client.ts`、`request.ts`、`metadata.ts`、`pair-rates.ts`、`matrix-rates.ts`、`source-links.ts`、`source-display.ts`、`table-layout.ts`；`components/` 下除 `fxrate/` 内部外一律从 `@/components/tools` 导入，不直连子模块。`FXRate` 为浏览器默认 client 单例（兼容既有导入）；`getFXRateClient()` 统一入口——浏览器返回单例，服务端经 `React.cache` 返回请求级 client（防共享 `batch()/done()` 可变状态）。批量请求一律经 `runBatch(client, queue, signal?)` 兜底（保证 `done()` 被调、异常不残留污染后续请求）。`getBackendInfo()` 与 `showCurrencyAllRates()` 除完成值 LRU 外还共享 in-flight promise，削平冷启动并发的 instanceInfo/listCurrencies RPC；客户端 footer 版本优先复用已完成的 `getCachedBackendInfo()`。`getCurrenciesDetails()` 按 `from-to-amount-p{precision}[-bfs]|来源支持指纹` 缓存（指纹含参与来源及其支持货币，变化自动失效）；`getRatesMatrix()` 用 `listFXRates`（key 含精度/方向 + 来源/支持指纹 + 排序后 `skipSources` 指纹）；源过滤条件「来源列表含 from 或 to 任一」（部分货币列表时缺失条目安全跳过），让后端 BFS 算交叉汇率（如 CNY↔CNH）；矩阵每格保留 `{middle, cash, remit, updated}`。
 
 ## 后端批量提交
@@ -61,7 +75,7 @@ public/fonts/        # noto-color-emoji-flags.woff2（Windows 国旗字形分片
 - **交叉汇率（单对）**：Header 按钮（localStorage `fxrate-cross-rates`）切换 `bfs` 参数（默认关闭，有累积误差）；交叉行银行名旁「经 HKD 折算」虚线标识，tooltip 展示完整路径。
 - **慢源拆分（Visa）**：`SLOW_SOURCES`（tools.ts）标记慢源（Visa chromium 降级查询不支持的货币可达 30s+；**MasterCard 毫秒级不在此列**）。单对视图把慢源拆出主批量 fire-and-forget 单独后台请求（**仅浏览器端**——SSR 不启动，请求级 client 渲染作用域结束即失效），完成后按 source 合并回调一次；有慢源时快源与慢源都成功（`slowOk`）才写缓存，慢源失败/未完成都不落（下次仍重试）。缓存写入经**代际守卫**（`slowSourceLatestGen` bounded LRU + 全局单调 id，**请求开始时登记**）：过期慢源批完成仍回调活跃调用方但不覆盖缓存，单调 id 防 key 重建后撞号。矩阵默认不请求慢源，底部「点击加载」行经 `getSourceMatrixRow()` 用 `getFXRate` 逐货币合并（后端对卡组织全表 403；只查支持货币避免 chromium 重建超时），每格写 `safeUpdated`；MasterCard 行在矩阵中 autoLoad 自动补查（该行为空/403 时），参数变化重置，单独加载行透传 `bfs`。
 - **视图与交互**：Header Tabs 切「单对报价」/「全对矩阵」。换向交换 from/to；金额防抖 300ms；单对 60s 自动刷新（仅页面可见时强刷）；手动刷新同时强刷矩阵。金额单位 `ToggleButton`（`selected`→`aria-pressed`，可访问名称动态描述当前模式与点击效果）；矩阵反向时金额标签「每种货币金额」。精度 select（原样/-1、0/2/4/6）持久化 `fxrate-precision` 并纳入缓存 key。xs（≤599.95px）把「精度/交叉汇率/刷新/API 文档/切换主题」收进「更多」溢出菜单（MoreVert 触发，精度项二级菜单锚定同按钮，交叉汇率项带 `selected`），sm+ 常规控件。
-- **AbortSignal 传播**：cross-rates/amount/from/to/precision/view 变化时 abort 对应视图的 `AbortController`（pair/matrix 独立），signal 传给 `getCurrenciesDetails`/`getRatesMatrix`/`getSourceMatrixRow`；`runBatch` 预中止直接抛 `AbortError`（零请求、不触碰 client 队列），在途用 `abortable(client.done(), signal)` 竞态。**被取消契约**：不写缓存、不回调、不启动慢源后台批（`isAbortError` 跳过错误提示，reqId 代际守卫兜底）；已启动的慢源批 detached 不受影响；额外行补查在 `rowParamsKey` 变化或关闭交叉汇率时同样 abort。
+- **AbortSignal 传播**：cross-rates/amount/from/to/precision/view 变化时 abort 对应视图的 `AbortController`（pair/matrix 独立），signal 传给 `getCurrenciesDetails`/`getRatesMatrix`/`getSourceMatrixRow`；`runBatch` 预中止直接抛 `AbortError`（零请求、不触碰 client 队列），在途用 `abortable(client.done(), signal)` 竞态。**被取消契约**：不写缓存、不回调、不启动慢源后台批（`isAbortError` 跳过错误提示，reqId 代际守卫兜底）；已启动的慢源批 detached 不受影响；额外行补查在 `rowParamsKey` 变化或关闭交叉汇率时同样 abort。**卸载取消**：`usePairData`/`useMatrixData` 返回的 `abort` 是稳定引用（`useCallback`，空依赖），首页的卸载清理 effect 只在真正卸载时运行；若每次渲染新建该函数，清理会在每次渲染后重跑并取消刚完成的请求。
 
 ## 矩阵视图
 
@@ -75,7 +89,7 @@ public/fonts/        # noto-color-emoji-flags.woff2（Windows 国旗字形分片
 
 ## URL 同步、主题与构建元数据
 
-- **URL 参数与视图记忆**：默认 `from=CNY&to=USD&amount=100&precision=4`。同路径参数变化用 Native History API `replaceState(state, "", nextUrl)` 防抖 300ms 原地同步（保留 Next history state、不触发 RSC GET）；**视图切换（路径变化）仍走 `router.push`**（push 前取消待写 timer 并推进 URL 写入代际，timer 回调校验代际与预定 pathname，旧路径写入不覆盖新路径）。pair 与 matrix 独立 state/存档（pair 写 `fxrate-pair-from/to`、`fxrate-reverse`，matrix 写 `fxrate-matrix-base/reverse`；直接加载与 popstate 当前 URL 优先，跨视图往返恢复存档）。pair URL 恒带 from+to；matrix 正/反向只带 `?from=` 或 `?to=`（不携冲突方向参数），均带 amount/precision。`page.tsx` 是薄壳不解析 searchParams（客户端 `useSearchParams` 读取，支持 `?precision=` 显式指定，默认 4）。
+- **URL 参数与视图记忆**：默认 `from=CNY&to=USD&amount=100&precision=4`。同路径参数变化用 Native History API `replaceState(state, "", nextUrl)` 防抖 300ms 原地同步（保留 Next history state、不触发 RSC GET）；**视图切换（路径变化）仍走 `router.push`**（push 前取消待写 timer 并推进 URL 写入代际，timer 回调校验代际与预定 pathname，旧路径写入不覆盖新路径）。pair 与 matrix 独立 state/存档（pair 写 `fxrate-pair-from/to`、`fxrate-reverse`，matrix 写 `fxrate-matrix-base/reverse`；直接加载与 popstate 当前 URL 优先，跨视图往返恢复存档）。pair URL 恒带 from+to；matrix 正/反向只带 `?from=` 或 `?to=`（不携冲突方向参数），均带 amount/precision。`page.tsx` 是薄壳不解析 searchParams（客户端 `useSearchParams` 读取，支持 `?precision=` 显式指定，默认 4）。精度偏好存 `fxrate-precision`：URL 未带 `?precision=` 时用偏好值，且只在存储读回（`useHydratedStorage` 的 `hydrated`）之后才写回存储与 URL，首挂载不会用默认值覆盖用户设置。
 - **主题**：`theme.tsx`（`ThemeProvider` + `useThemeMode()`）以 `<html data-theme>` 为单一事实来源（`useSyncExternalStore`，`getServerSnapshot` 恒 light 保证 hydration 无 mismatch，提交后自动校正为预绘制主题）。**预绘制初始化**（消除 dark 背景白闪）：layout `beforeInteractive` 注入 `themeInitScript`（`theme-init.ts`），把 `localStorage["fxrate-theme"]`（仅 light/dark）→ `prefers-color-scheme: dark` 回落结果写 `<html data-theme>` 与 `style.colorScheme`（每步独立 try，绝不被拦/不抛错），`globals.css` 的 `html[data-theme]` 规则 hydration 前就着色 html/body。**FOUC 评估结论（Phase 4B 任务 13）**：不做组件级 CSS 反色（深色文字落深色表面反而不可读）也不做 SSR 暗色预渲染（主题模式 SSR 不可知，会破坏 `getServerSnapshot` 恒 light 契约与 palette 色值计算）；只做安全过渡——sticky header 加 `background-color 0.2s ease`（body/Paper 已有）。持久化 effect 只在 mode 与 DOM 解析一致时写回（hydration 中间态 light 不覆盖 dark 存档）。根 `proxy.ts` 按 Next 16 文档模式生成每请求唯一 CSP nonce（`crypto.getRandomValues`+`btoa`）：请求头带 `x-nonce` + 同 nonce CSP（layout 读 `x-nonce` 传 Script），响应头 production CSP（`script-src 'self' 'nonce-…'` 无 unsafe-inline + 显式 analytics host；`style-src` 保留 unsafe-inline 供 MUI/Emotion；dev 不注入避免干扰 HMR）；布局因 `headers()` 动态渲染。设计语言（sunoaki.net，`mui.d.ts` 含 `brandSoft`/`surfaceMuted`/Button `tonal` 类型增强）：暖色纸张感（浅 `#fbfaf7`/暗 `#10171c`）+ 深青绿 accent（`#2f6f73`/`#8fc3c6`）、`borderRadius=14`、卡片 14px 圆角 + 1px 暖沙边框、pill 按钮、表头 `surfaceMuted` 600 字重、tooltip inverse 惯例、表格 `tabular-nums`、`fontFamily="inherit"`（next/font Inter）；交互元素 2px 品牌色 `focus-visible` 轮廓（移动端 Tab 内嵌轮廓防 Tabs scroller 裁切），**Tab 的 `transition` 只覆盖背景/文字色**（`index.tsx` 的 `"& .MuiTab-root"`，改回 `all` 会让键盘聚焦 outline 0→2px 动画、e2e 聚焦截图截到 1px 中值）；常规可交互控件 ≥40px 目标。`test/e2e/accessibility.spec.ts` 在 320/360px 检查目标尺寸/焦点环（未覆盖控件不据此宣称通过完整门禁）。
 - **国旗 emoji 字体（Windows）**：`sourceIcon.tsx` 的 `currencyEmoji()` 返回区域指示符国旗，取值集合封闭在 `country-locale-map` 的全部国家 emoji 加 `PRIMARY_FLAGS` 之内。Windows 的 Segoe UI Emoji 不含国旗字形（只渲染成两个字母），因此 `globals.css` 声明 `@font-face`（`public/fonts/noto-color-emoji-flags.woff2`，取自 Google Fonts 的 Noto Color Emoji 区域指示符分片，`unicode-range: U+1F1E6-1F1FF`，约 693 KB，含全部国旗），`layout.tsx` 只在请求头 `user-agent` 命中 `Windows NT` 时把该字体族追加到 body 的 `font-family`（用 inline style，优先级高于 CssBaseline，否则会被 `typography.fontFamily: "inherit"` 覆盖）；其他平台不引用该字体族即不下载，首屏不付这份体积。该分片无法再按货币裁剪：676 面国旗共用 26 个区段符号输入字形，子集化的 GSUB 闭包必然把整块拉回。**这是按 UA 分叉的 HTML，nginx 缓存键必须带 UA 变体**（`02-fxrate-openresty.yml` 的 `$fx_ua_variant`）：缓存键不含 UA 时，任一非 Windows 客户端先请求就会把「无字体族」的 body 写入缓存并交给之后所有 Windows 用户，国旗恒不显示，而 `@font-face`、字体文件、CSP `font-src 'self'` 全部正常——排查时容易误判。改完 ConfigMap 需 `rollout restart deployment/fxrate-ngx` 才重载（配置更新不触发滚动）。
 - **页脚**：`footer.tsx`（client）渲染在 Index 底部，props `buildId`/`buildTime`/`version`/`backendVersion`；版权 `@real186526` → https://186526.xyz；tooltip 显示 `fxrate-web@短hash + 构建时间 + 完整 hash`（构建时间格式对齐后端 BUILDTIME：`2025-10-20T23:29:04+08:00` 本地时区 ISO），GitHub 链接指后端仓库。

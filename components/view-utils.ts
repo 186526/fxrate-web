@@ -6,6 +6,8 @@ import type { FXListProps } from "./shared"
 
 export type View = "pair" | "matrix"
 
+export const DEFAULT_PRECISION = 4
+
 export const parsePrecision = (value: string | null): number | null => {
 	if (value == null) return null
 	const precision = Number(value)
@@ -81,6 +83,22 @@ export const hasMatrixQuotes = (data: RatesMatrix | null): boolean =>
 			)
 		)
 	)
+
+// 快照按完整参数 key 门控：只有 key 与当前参数一致的数据才可渲染，
+// 旧参数的数据在重置 effect 运行前也绝不显示
+export const visibleSnapshot = <T extends { key: string }>(
+	snapshot: T | null,
+	activeKey: string
+): T | null => (snapshot != null && snapshot.key == activeKey ? snapshot : null)
+
+// 单对视图「更新时间」：所有可见行的最新 updated；空表返回 null
+export const latestPairUpdated = (rows: FXListProps[] | null): Date | null => {
+	if (!rows || rows.length == 0) return null
+	return rows.reduce(
+		(max, row) => (row.updated > max ? row.updated : max),
+		rows[0].updated
+	)
+}
 
 // 视图记忆 localStorage keys：pair 记忆（from/to + reverse）与 matrix 记忆（基准/方向）分离，
 // 各自仅在本视图路径写入，pair↔matrix 往返时互不重置；矩阵 URL 的 to 是基准货币，

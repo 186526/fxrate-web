@@ -361,6 +361,21 @@ export function StatsTip({
 	})
 }
 
+export function relativeTime(date: Date): string {
+	const diff = Date.now() - date.getTime()
+	if (diff < 60000) return "刚刚"
+	if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`
+	if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`
+	return `${Math.floor(diff / 86400000)} 天前`
+}
+
+// hydration 安全的相对时间：SSR/客户端首帧渲染 null，挂载后再显示
+export function RelativeTime({ date }: { date: Date }) {
+	const mounted = useMounted()
+	if (!mounted) return null
+	return <>{relativeTime(date)}</>
+}
+
 export function StaleIcon({ title }: { title: string }) {
 	// 详情没有其他可见入口，因此图标可聚焦；简短 aria-label 提供名称，Tooltip
 	// 通过 describeChild 补充具体更新时间，避免用详情文本覆盖图标名称
