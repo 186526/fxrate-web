@@ -1,8 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { act, render, screen, waitFor } from "@testing-library/react"
-import { hydrateRoot } from "react-dom/client"
-import { renderToString } from "react-dom/server"
+import { render, screen, waitFor } from "@testing-library/react"
 import { ThemeProvider } from "@/components/theme"
 import Index from "@/components/index"
 
@@ -33,16 +31,17 @@ import { DEFAULT_PRECISION } from "@/components/view-utils"
 const getCurrenciesDetailsMock = vi.mocked(getCurrenciesDetails)
 const PRECISION_KEY = "fxrate-precision"
 
-const home = () => (
-	<ThemeProvider>
-		<Index
-			buildId="build"
-			buildTime="2026-01-01T00:00:00.000Z"
-			version="1.0.0"
-			initialCurrencies={{ bankA: ["CNY", "USD"] }}
-		/>
-	</ThemeProvider>
-)
+const renderHome = () =>
+	render(
+		<ThemeProvider>
+			<Index
+				buildId="build"
+				buildTime="2026-01-01T00:00:00.000Z"
+				version="1.0.0"
+				initialCurrencies={{ bankA: ["CNY", "USD"] }}
+			/>
+		</ThemeProvider>
+	)
 
 describe("Index 精度偏好首挂载", () => {
 	beforeEach(() => {
@@ -56,7 +55,7 @@ describe("Index 精度偏好首挂载", () => {
 		window.localStorage.setItem(PRECISION_KEY, "6")
 		const replaceState = vi.spyOn(window.history, "replaceState")
 
-		render(home())
+		renderHome()
 
 		await waitFor(() => expect(getCurrenciesDetailsMock).toHaveBeenCalled())
 		expect(getCurrenciesDetailsMock.mock.calls[0][4]?.precision).toBe(6)
@@ -72,32 +71,32 @@ describe("Index 精度偏好首挂载", () => {
 		replaceState.mockRestore()
 	})
 
-	// 真实首屏是服务端渲染 + 客户端 hydrate：客户端首帧读到的是服务端快照，
-	// 存储尚未读回。此时若写回精度，就会用默认值覆盖用户设置。
-	it("hydrate 首帧不写回默认精度，并按保存值请求报价", async () => {
-		window.localStorage.setItem(PRECISION_KEY, "6")
+	// 首挂载时存储里没有精度（新用户或清空过存储）：写回默认值属预期。
+	// 此后用户在别处保存的精度，再次挂载时必须保留，不能被默认值覆盖。
+	it("存储中保存的精度在再次挂载时不被默认值覆盖", async () => {
 		const setItem = vi.spyOn(Storage.prototype, "setItem")
 
-		const container = document.createElement("div")
-		container.innerHTML = renderToString(home())
-		document.body.appendChild(container)
+		const first = renderHome()
+		await waitFor(() =>
+			expect(window.localStorage.getItem(PRECISION_KEY)).toBe(
+				String(DEFAULT_PRECISION)
+			)
+		)
+		first.unmount()
 
-		let root: ReturnType<typeof hydrateRoot> | null = null
-		await act(async () => {
-			root = hydrateRoot(container, home())
-		})
+		window.localStorage.setItem(PRECISION_KEY, "6")
+		setItem.mockClear()
+
+		renderHome()
 
 		await waitFor(() => expect(getCurrenciesDetailsMock).toHaveBeenCalled())
 		expect(getCurrenciesDetailsMock.mock.calls[0][4]?.precision).toBe(6)
-
 		const precisionWrites = setItem.mock.calls
 			.filter((call) => call[0] == PRECISION_KEY)
 			.map((call) => String(call[1]))
-		expect(precisionWrites[0]).not.toBe(String(DEFAULT_PRECISION))
+		expect(precisionWrites[0]).toBe("6")
+		expect(precisionWrites).not.toContain(String(DEFAULT_PRECISION))
 		expect(window.localStorage.getItem(PRECISION_KEY)).toBe("6")
-
-		await act(async () => root?.unmount())
-		container.remove()
 		setItem.mockRestore()
 	})
 })

@@ -19,11 +19,13 @@ export interface BestPriceSource {
 
 // 「参与最优价高亮」弹层：单对视图与矩阵视图共用同一实现。
 // 全选与恢复默认都会关闭弹层——两者都是整体操作，留在弹层内没有后续动作。
+// 单对视图每次打开都清空搜索框；矩阵视图保留上次输入的过滤词（原有行为）。
 export default function BestPricePickerPopover({
 	anchor,
 	onClose,
 	sources,
 	excluded,
+	clearSearchOnOpen = false,
 	onToggle,
 	onSelectAll,
 	onReset,
@@ -32,11 +34,18 @@ export default function BestPricePickerPopover({
 	onClose: () => void
 	sources: BestPriceSource[]
 	excluded: Set<string>
+	clearSearchOnOpen?: boolean
 	onToggle: (source: string) => void
 	onSelectAll: () => void
 	onReset: () => void
 }) {
 	const [search, setSearch] = React.useState("")
+	// 打开瞬间清空：在渲染期比较上次的 anchor，避免多一帧显示旧过滤结果
+	const [lastAnchor, setLastAnchor] = React.useState(anchor)
+	if (anchor != lastAnchor) {
+		setLastAnchor(anchor)
+		if (anchor && clearSearchOnOpen && search != "") setSearch("")
+	}
 	const filtered = React.useMemo(
 		() =>
 			sources.filter((s) =>

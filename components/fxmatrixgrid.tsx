@@ -70,8 +70,14 @@ function FXMatrixGrid({
 		selectAll: selectAllSources,
 	} = useBestPriceSources()
 
-	const { enabled, allCurrencies, currencies, toggleCurrency, resetCurrencies } =
-		useVisibleCurrencies(data, from)
+	const {
+		enabled,
+		allCurrencies,
+		defaultCurrencies,
+		currencies,
+		toggleCurrency,
+		resetCurrencies,
+	} = useVisibleCurrencies(data, from)
 
 	// 可见货币签名（仅主数据 + 启用集合，不含额外行）：用于构造请求 key。
 	// 额外行新增的货币列不应触发整批额外行重置，故 key 只随主数据/启用集变化
@@ -256,6 +262,7 @@ function FXMatrixGrid({
 					anchor={pickerAnchor}
 					onClose={() => setPickerAnchor(null)}
 					allCurrencies={allCurrencies}
+					defaultCurrencies={defaultCurrencies}
 					enabled={enabled}
 					onToggle={toggleCurrency}
 					onReset={resetCurrencies}

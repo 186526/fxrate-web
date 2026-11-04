@@ -204,6 +204,7 @@ function FXListGrid({
 					onClose={() => setPickerAnchor(null)}
 					sources={rows.map((r) => ({ source: r.source, label: r.name }))}
 					excluded={excluded}
+					clearSearchOnOpen
 					onToggle={toggleExcluded}
 					onSelectAll={selectAllSources}
 					onReset={resetExcluded}

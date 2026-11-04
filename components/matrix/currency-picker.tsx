@@ -16,6 +16,7 @@ export default function CurrencyPickerPopover({
 	anchor,
 	onClose,
 	allCurrencies,
+	defaultCurrencies,
 	enabled,
 	onToggle,
 	onReset,
@@ -23,6 +24,8 @@ export default function CurrencyPickerPopover({
 	anchor: HTMLElement | null
 	onClose: () => void
 	allCurrencies: string[]
+	// 未自定义时勾选的就是默认常用币种，须与表格实际展示的列一致
+	defaultCurrencies: string[]
 	// null 表示未自定义，使用默认常用币种
 	enabled: string[] | null
 	onToggle: (currency: string) => void
@@ -70,7 +73,7 @@ export default function CurrencyPickerPopover({
 							control={
 								<Checkbox
 									size="small"
-									checked={(enabled ?? allCurrencies).includes(c)}
+									checked={(enabled ?? defaultCurrencies).includes(c)}
 									onChange={() => onToggle(c)}
 								/>
 							}
