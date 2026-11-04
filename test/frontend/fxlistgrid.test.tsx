@@ -159,3 +159,30 @@ describe("FXListGrid 斑马纹 / 宽度规则", () => {
 		expect(window.getComputedStyle(cell).textAlign).toBe("right")
 	})
 })
+
+describe("FXListGrid 参与高亮弹层", () => {
+	it("全选后关闭弹层", async () => {
+		const user = (await import("@testing-library/user-event")).default
+		renderList()
+
+		await user.click(screen.getByRole("button", { name: "参与高亮 3/3 家" }))
+		expect(screen.getByRole("checkbox", { name: /bankA/ })).toBeInTheDocument()
+
+		await user.click(screen.getByRole("button", { name: "全选" }))
+		expect(screen.queryByRole("checkbox")).not.toBeInTheDocument()
+	})
+
+	it("重新打开时清空上次的搜索词", async () => {
+		const user = (await import("@testing-library/user-event")).default
+		renderList()
+
+		await user.click(screen.getByRole("button", { name: "参与高亮 3/3 家" }))
+		await user.type(screen.getByPlaceholderText("搜索银行..."), "bankB")
+		expect(screen.queryByRole("checkbox", { name: /bankA/ })).not.toBeInTheDocument()
+
+		await user.keyboard("{Escape}")
+		await user.click(screen.getByRole("button", { name: "参与高亮 3/3 家" }))
+		expect(screen.getByPlaceholderText("搜索银行...")).toHaveValue("")
+		expect(screen.getByRole("checkbox", { name: /bankA/ })).toBeInTheDocument()
+	})
+})

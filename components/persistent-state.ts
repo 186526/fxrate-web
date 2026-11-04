@@ -3,6 +3,9 @@ import * as React from "react"
 
 type Parser<T> = (value: string | null) => T
 
+// 挂载标记用：服务端快照 false、客户端 true，无需订阅
+const neverSubscribe = () => () => {}
+
 const listeners = new Map<string, Set<() => void>>()
 const snapshots = new Map<string, string | null>()
 
@@ -85,6 +88,9 @@ export function usePersistentState<T>(
 	return [value, setValue, reset] as const
 }
 
+// 读取 localStorage 中的持久化值。hydrated=false 表示服务端快照或客户端首次
+// 渲染（useSyncExternalStore 尚未读取存储），此时返回 defaultValue；调用方必须
+// 等 hydrated 为 true 后再把值写回存储，否则首挂载会用默认值覆盖用户设置。
 export function useHydratedStorage<T>(
 	key: string,
 	defaultValue: T,
@@ -96,5 +102,15 @@ export function useHydratedStorage<T>(
 		getClientSnapshot,
 		() => null,
 	)
-	return raw == null ? defaultValue : parse(raw)
+	// 挂载后才允许写回：仅凭 raw 是否为 null 无法区分「还没读」与「没有存值」，
+	// 首挂载写回会用默认值覆盖用户设置。服务端快照 false、客户端 true。
+	const hydrated = React.useSyncExternalStore(
+		neverSubscribe,
+		() => true,
+		() => false,
+	)
+	return {
+		value: raw == null ? defaultValue : parse(raw),
+		hydrated,
+	}
 }

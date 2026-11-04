@@ -608,3 +608,34 @@ describe("矩阵表格语义", () => {
 		expect(style.overflow).toBe("hidden")
 	})
 })
+
+describe("FXMatrixGrid 参与高亮弹层", () => {
+	it("全选后关闭弹层", async () => {
+		const user = userEvent.setup()
+		renderGrid()
+
+		await user.click(screen.getByRole("button", { name: "参与高亮 1/1 家" }))
+		expect(screen.getByRole("checkbox", { name: /bankA/ })).toBeInTheDocument()
+
+		await user.click(screen.getByRole("button", { name: "全选" }))
+		expect(screen.queryByRole("checkbox")).not.toBeInTheDocument()
+	})
+})
+
+describe("FXMatrixGrid 显示货币弹层", () => {
+	it("未自定义时勾选状态与表格一致：非常用币种不勾选，常用币种勾选", async () => {
+		const user = userEvent.setup()
+		renderGrid({
+			data: {
+				bankA: { USD: { middle: 7.1 }, SEK: { middle: 0.72 } },
+			},
+		})
+
+		await user.click(screen.getByRole("button", { name: /显示货币/ }))
+		const currencyBox = (code: string) =>
+			screen.getByRole("checkbox", { name: new RegExp(code) })
+
+		expect(currencyBox("USD")).toBeChecked()
+		expect(currencyBox("SEK")).not.toBeChecked()
+	})
+})

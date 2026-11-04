@@ -16,10 +16,9 @@ export default defineConfig([
 		// 客户端 hydration/SWR 模块：挂载 effect 中同步外部系统（localStorage/URL）到 state
 		// 属必要模式，降为 warning；其余文件维持默认 error。核心规则保持 error。
 		files: [
-			"components/index.tsx",
-			"components/fxmatrixgrid.tsx",
-			"components/theme.tsx",
-			"components/bestPriceSources.ts",
+			"components/{index.tsx,fxmatrixgrid.tsx,theme.tsx,bestPriceSources.ts}",
+			"components/home/**/*.{ts,tsx}",
+			"components/matrix/**/*.{ts,tsx}",
 		],
 		rules: {
 			"react-hooks/set-state-in-effect": "warn",
