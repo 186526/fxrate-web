@@ -5,6 +5,7 @@ import {
 	collectPageErrors,
 	collectStaticResource404s,
 } from "./helpers/pageDiagnostics"
+import { resetE2EState } from "./helpers/mockServer"
 
 // axe 节点白名单：只放行"既有设计层"的精确节点（rule id + target/html 都须匹配），
 // 一个违规若含任何未白名单节点仍会失败——gate 不会随名单整体放宽。
@@ -74,6 +75,9 @@ async function assertNoSeriousViolations(page: Page) {
 }
 
 test.describe("accessibility smoke", () => {
+	test.beforeEach(async () => {
+		await resetE2EState()
+	})
 	test("白名单条目同时声明 target/html 时必须全部匹配，单侧命中不得放行", () => {
 		const matchingNode = {
 			target: ['[aria-label="数据更新时间：刚刚"]'],

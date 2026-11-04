@@ -62,6 +62,17 @@ const slowSourceLatestGen = new LRUCache<string, number>({
 })
 let slowSourceGenCounter = 0
 
+// 测试用：清空单对报价缓存与慢源代际表。模块级状态跨用例存活，不清的话：
+// - `cache` 命中会让下一个用例跳过请求；
+// - `slowSourceLatestGen` 里上一个用例的在途慢源批仍持有最新代际，完成后能通过
+//   代际守卫写进刚清空的 `cache`，把旧场景的数据带进下一个用例。
+// 单调计数器 `slowSourceGenCounter` 故意保留：它只增不减，留着才能保证清理前后
+// 新旧请求的代际 id 不撞号。
+export function clearPairRatesCache(): void {
+	cache.clear()
+	slowSourceLatestGen.clear()
+}
+
 export async function getCurrenciesDetails(
 	currencies: { [source: string]: string[] },
 	toCurrency: string,

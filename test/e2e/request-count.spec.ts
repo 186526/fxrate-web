@@ -2,7 +2,7 @@ import { expect, Page, test } from "@playwright/test"
 import { mockJsonRpcRoutes } from "./helpers/mockJsonRpc"
 import {
 	getMockServerCounters,
-	resetMockServer,
+	resetE2EState,
 } from "./helpers/mockServer"
 
 function collectPageErrors(page: Page) {
@@ -18,17 +18,16 @@ function collectPageErrors(page: Page) {
 //   visa 慢源后台（2 getFXRate）= 2 条批量、8 个 getFXRate、0 个 instanceInfo/listCurrencies
 //   （浏览器从不拉货币列表，证明 SSR 已提供）。
 // - 切矩阵：/matrix 是纯客户端薄壳（无 SSR），重挂载时浏览器 currenciesCache 冷
-//   （首屏被 SSR 跳过故从未填充），dev StrictMode 双挂载下 showCurrencyAllRates
-//   两次都在写缓存前启动 → 2×（instanceInfo + 4×listCurrencies）+ 串行 info() + 矩阵批量
-//   = +6 批量（StrictMode 双挂载为 dev-only 行为，生产单挂载为 +4）。
+//   （首屏被 SSR 跳过故从未填充）→ 1×（instanceInfo + 4×listCurrencies）+ 矩阵批量
+//   = +3 批量（累计 5），instanceInfo 累计 1、listCurrencies 累计 4、listFXRates 3。
 // - 切回 pair：RSC 重渲染 page.tsx 命中服务端 SWR 缓存再次下发 initial props，
 //   浏览器 tools LRU 命中 → 数据零新增。
 test.describe("request-count", () => {
 	test.beforeEach(async () => {
-		await resetMockServer()
+		await resetE2EState()
 	})
 
-	test("SSR 首屏：浏览器 hydration 零货币列表/版本请求；切矩阵 +6；切回 pair 数据零新增", async ({
+	test("SSR 首屏：浏览器 hydration 零货币列表/版本请求；切矩阵 +3；切回 pair 数据零新增", async ({
 		page,
 	}) => {
 		const mock = mockJsonRpcRoutes(page)
@@ -65,17 +64,17 @@ test.describe("request-count", () => {
 		expect(mock.count("getFXRate")).toBe(8)
 		expect(mock.count("listFXRates")).toBe(0)
 
-		// 切矩阵：薄壳重挂载（无 initial props）→ dev StrictMode 双挂载
-		// 货币列表（2×2 批量）+ 版本（1）+ 矩阵（1）= +6 批量
+		// 切矩阵：薄壳重挂载（无 initial props），货币列表缓存冷 → 版本（1）
+		// + 货币列表（4 个来源同批）+ 矩阵（1）= +3 批量；浏览器层累计 5 批次
 		await page.getByRole("tab", { name: "全对矩阵" }).click()
 		await expect(page.getByText(/以 CNY 为基准/)).toBeVisible({ timeout: 30_000 })
 		await expect
 			.poll(() => mock.count("listFXRates"), { timeout: 20_000 })
 			.toBeGreaterThan(0)
 		await page.waitForTimeout(1500)
-		expect(mock.batches()).toBe(8)
-		expect(mock.count("instanceInfo")).toBe(3)
-		expect(mock.count("listCurrencies")).toBe(8)
+		expect(mock.batches()).toBe(5)
+		expect(mock.count("instanceInfo")).toBe(1)
+		expect(mock.count("listCurrencies")).toBe(4)
 		expect(mock.count("listFXRates")).toBe(3)
 
 		// 切回单对：服务端 SWR 缓存命中再次下发 initial props + 浏览器 LRU 命中
@@ -85,9 +84,9 @@ test.describe("request-count", () => {
 		await page.waitForTimeout(1500)
 		expect(mock.count("getFXRate")).toBe(8)
 		expect(mock.count("listFXRates")).toBe(3)
-		expect(mock.count("instanceInfo")).toBe(3)
-		expect(mock.count("listCurrencies")).toBe(8)
-		expect(mock.batches()).toBe(8)
+		expect(mock.count("instanceInfo")).toBe(1)
+		expect(mock.count("listCurrencies")).toBe(4)
+		expect(mock.batches()).toBe(5)
 
 		expect(getErrors()).toEqual([])
 	})

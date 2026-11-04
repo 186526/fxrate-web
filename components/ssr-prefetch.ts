@@ -5,6 +5,10 @@
 // 任何失败/超时/空结果都降级为薄壳（客户端照常自己拉数），绝不阻塞首屏。
 import type { FXListProps } from "@/components/fxlistgrid"
 import {
+	clearBundleCaches,
+	registerDataCacheClearHook,
+} from "./fxrate/test-cache-reset"
+import {
 	getBackendInfo,
 	getCurrenciesDetails,
 	showCurrencyAllRates,
@@ -37,6 +41,13 @@ export function clearSSRPrefetchCache(): void {
 	swrCache.clear()
 	swrInFlight.clear()
 }
+
+// 测试用：把本模块所在 bundle 的清空函数登记到 globalThis，供
+// app/api/test-only/reset-caches 路由清掉页面 bundle 那份缓存（见 test-cache-reset.ts）
+registerDataCacheClearHook(() => {
+	clearSSRPrefetchCache()
+	clearBundleCaches()
+})
 
 function first(v: string | string[] | undefined): string | undefined {
 	return Array.isArray(v) ? v[0] : v

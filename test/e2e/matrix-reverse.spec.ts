@@ -1,5 +1,6 @@
 import { expect, Page, test } from "@playwright/test"
 import { mockJsonRpcRoutes } from "./helpers/mockJsonRpc"
+import { resetE2EState } from "./helpers/mockServer"
 
 function collectPageErrors(page: Page) {
 	const errors: string[] = []
@@ -19,6 +20,9 @@ function countDocumentNavigations(page: Page) {
 const REVERSE_SEMANTICS = /每 100 单位各货币可兑换的 CNY 数量/
 
 test.describe("matrix-reverse", () => {
+	test.beforeEach(async () => {
+		await resetE2EState()
+	})
 	test("反向切换：URL 方向参数 to=、反向文案、零 document 导航、请求带 reverse=true", async ({
 		page,
 	}) => {

@@ -4,8 +4,12 @@ import {
 	collectPageErrors,
 	collectStaticResource404s,
 } from "./helpers/pageDiagnostics"
+import { resetE2EState } from "./helpers/mockServer"
 
 test.describe("route loading shell", () => {
+	test.beforeEach(async () => {
+		await resetE2EState()
+	})
 	test("矩阵路由加载阶段由客户端 MatrixTableSkeleton 接管，listFXRates 返回前不回退成单对骨架", async ({
 		page,
 	}) => {
