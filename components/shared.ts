@@ -1,4 +1,4 @@
-// 跨模块共享的零依赖类型与纯工具。放在这里的东西不得 import 任何 componets 内的模块，
+// 跨模块共享的零依赖类型与纯工具。放在这里的东西不得 import 任何 components 内的模块，
 // 否则会重新引入 tools.ts ↔ 组件的循环依赖。
 //
 // - FXListProps：单对报价行类型。原先定义在 fxlistgrid.tsx，被 tools.ts 引用，

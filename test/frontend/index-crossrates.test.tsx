@@ -2,9 +2,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { StrictMode } from "react"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { ThemeProvider } from "@/componets/theme"
-import Index from "@/componets/index"
-import type { FXListProps } from "@/componets/fxlistgrid"
+import { ThemeProvider } from "@/components/theme"
+import Index from "@/components/index"
+import type { FXListProps } from "@/components/fxlistgrid"
 
 const { mockSearchParams } = vi.hoisted(() => ({
 	mockSearchParams: new URLSearchParams(),
@@ -16,8 +16,8 @@ vi.mock("next/navigation", () => ({
 	usePathname: () => "/",
 }))
 
-vi.mock("@/componets/tools", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("@/componets/tools")>()
+vi.mock("@/components/tools", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@/components/tools")>()
 	return {
 		...actual,
 		getRatesMatrix: vi.fn(),
@@ -27,7 +27,7 @@ vi.mock("@/componets/tools", async (importOriginal) => {
 	}
 })
 
-import { getCurrenciesDetails } from "@/componets/tools"
+import { getCurrenciesDetails } from "@/components/tools"
 
 const CROSS_KEY = "fxrate-cross-rates"
 

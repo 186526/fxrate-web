@@ -1,6 +1,6 @@
 import type { infoResponse } from "@/lib/fxrate/src/client"
 import type { JsonRpcRequest } from "./model"
-import { isAbortError } from "@/componets/shared"
+import { isAbortError } from "@/components/shared"
 
 export type RequestState =
 	| { status: "idle" }
@@ -26,7 +26,7 @@ interface RequestSlot {
 	controller: AbortController | null
 }
 
-// 唯一实现见 componets/shared.ts（此处 re-export，既有导入路径不变）
+// 唯一实现见 components/shared.ts（此处 re-export，既有导入路径不变）
 export { isAbortError }
 
 function errorMessage(error: unknown): string {

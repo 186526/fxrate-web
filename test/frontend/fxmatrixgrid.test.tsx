@@ -4,12 +4,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { createTheme, ThemeProvider } from "@mui/material/styles"
-import FXMatrixGrid from "@/componets/fxmatrixgrid"
-import { getSourceMatrixRow } from "@/componets/tools"
-import type { RatesMatrixCell } from "@/componets/tools"
+import FXMatrixGrid from "@/components/fxmatrixgrid"
+import { getSourceMatrixRow } from "@/components/tools"
+import type { RatesMatrixCell } from "@/components/tools"
 
-vi.mock("@/componets/tools", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("@/componets/tools")>()
+vi.mock("@/components/tools", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@/components/tools")>()
 	return { ...actual, getSourceMatrixRow: vi.fn() }
 })
 

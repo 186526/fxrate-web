@@ -22,12 +22,17 @@ import EmojiEventsIcon from "@mui/icons-material/EmojiEvents"
 import RssFeedIcon from "@mui/icons-material/RssFeed"
 import OpenInNewIcon from "@mui/icons-material/OpenInNew"
 import Link from "@mui/material/Link"
-import { sourceNamesInZH } from "@/lib/fxrate/src/constant"
-import { useBestPriceSources } from "@/componets/bestPriceSources"
-import BestPriceMark from "@/componets/bestPriceMark"
-import { SourceIcon } from "@/componets/sourceIcon"
-import { rssURL, ratesPageURL } from "@/componets/tools"
-import { FXListProps } from "@/componets/shared"
+import { useBestPriceSources } from "@/components/bestPriceSources"
+import BestPriceMark from "@/components/bestPriceMark"
+import { SourceIcon } from "@/components/sourceIcon"
+import {
+	rssURL,
+	ratesPageURL,
+	getName,
+	SOURCE_COL_MIN_WIDTH,
+	NUMERIC_CELL_LAYOUT,
+} from "@/components/tools"
+import { FXListProps } from "@/components/shared"
 import {
 	RateValue,
 	toNumber,
@@ -40,18 +45,10 @@ import {
 	StatsTipProvider,
 	StaleIcon,
 	useMounted,
-} from "@/componets/rateStats"
+} from "@/components/rateStats"
 
-// 既有导入路径兼容：FXListProps 实体已移至 componets/shared.ts
-export type { FXListProps } from "@/componets/shared"
-
-const nameMapping: { [x: string]: string } = sourceNamesInZH
-
-function getName(name: string): string {
-	if (nameMapping[name]) {
-		return nameMapping[name] + ` (${name})`
-	} else return name
-}
+// 既有导入路径兼容：FXListProps 实体已移至 components/shared.ts
+export type { FXListProps } from "@/components/shared"
 
 type SortKey = "name" | "buyCash" | "buyRemit" | "sellCash" | "sellRemit" | "middle"
 
@@ -71,17 +68,6 @@ const columns: Column[] = [
 	{ key: "middle", label: "中间价", align: "right", sortable: true },
 	{ key: "updated", label: "更新时间", align: "right" },
 ]
-
-// 窄屏宽度规则：来源列保证最小宽度（配合首列 sticky 截断长名）；
-// 数值列设 min/max 宽度并截断超长值，避免极端数字在 320px 下撑爆横滚布局
-const SOURCE_COL_MIN_WIDTH = { xs: 116, sm: 150 } as const
-const NUMERIC_CELL_LAYOUT = {
-	minWidth: { xs: 64, sm: 80 },
-	maxWidth: { xs: 104, sm: 136 },
-	overflow: "hidden",
-	textOverflow: "ellipsis",
-	whiteSpace: "nowrap",
-} as const
 
 const formatValue = (v: RateValue): string =>
 	typeof v == "number" || typeof v == "string" ? String(v) : "—"

@@ -13,7 +13,7 @@ import {
 	orientMatrixRowPaths,
 	priceTypeLabels,
 	toNumber,
-} from "@/componets/matrix-utils"
+} from "@/components/matrix-utils"
 
 describe("toNumber 值归一", () => {
 	it("数字原样返回", () => {

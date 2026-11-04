@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 
-import APIDocs from "@/componets/apidocs"
+import APIDocs from "@/components/apidocs"
 
 export const metadata: Metadata = {
 	title: "API 文档 | FXRate-web",

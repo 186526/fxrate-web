@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { createTheme, ThemeProvider } from "@mui/material/styles"
-import CurrencyChooser from "@/componets/currencyChooser"
+import CurrencyChooser from "@/components/currencyChooser"
 
 const theme = createTheme({
 	palette: {

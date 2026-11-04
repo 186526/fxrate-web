@@ -3,7 +3,7 @@
 // 因此非默认参数一律保持纯客户端加载，URL 参数变化绝不再触发服务端数据请求）；
 // 服务端模块级 SWR 缓存（TTL 45s）去重并发/重复请求（多副本各自一份，可接受）。
 // 任何失败/超时/空结果都降级为薄壳（客户端照常自己拉数），绝不阻塞首屏。
-import type { FXListProps } from "@/componets/fxlistgrid"
+import type { FXListProps } from "@/components/fxlistgrid"
 import {
 	getBackendInfo,
 	getCurrenciesDetails,

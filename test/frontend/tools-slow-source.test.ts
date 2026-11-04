@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { FXRate, getCurrenciesDetails, rssURL } from "@/componets/tools"
-import type { FXDetailsUpdate } from "@/componets/tools"
+import { FXRate, getCurrenciesDetails, rssURL } from "@/components/tools"
+import type { FXDetailsUpdate } from "@/components/tools"
 import { createBatchMock } from "./jsonrpc"
 import type { JsonRpcRequest } from "./jsonrpc"
 

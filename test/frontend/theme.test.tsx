@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { StrictMode } from "react"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import Button from "@mui/material/Button"
-import { ThemeProvider, useThemeMode } from "@/componets/theme"
-import { THEME_ATTR } from "@/componets/theme-init"
+import { ThemeProvider, useThemeMode } from "@/components/theme"
+import { THEME_ATTR } from "@/components/theme-init"
 
 const THEME_KEY = "fxrate-theme"
 

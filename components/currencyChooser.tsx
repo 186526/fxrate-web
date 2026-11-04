@@ -16,7 +16,7 @@ import SwapVertIcon from "@mui/icons-material/SwapVert"
 import { code } from "currency-codes-ts"
 import { getAllCountries } from "country-locale-map"
 
-import { currencyEmoji } from "@/componets/sourceIcon"
+import { currencyEmoji } from "@/components/sourceIcon"
 
 interface CurrencyOption {
 	code: string

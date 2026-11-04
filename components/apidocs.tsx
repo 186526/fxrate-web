@@ -10,8 +10,8 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack"
 import DarkModeIcon from "@mui/icons-material/DarkMode"
 import LightModeIcon from "@mui/icons-material/LightMode"
 
-import { useMounted } from "@/componets/rateStats"
-import { useThemeMode } from "@/componets/theme"
+import { useMounted } from "@/components/rateStats"
+import { useThemeMode } from "@/components/theme"
 import { EndpointNavigation } from "./api-docs/navigation"
 import {
 	API_ENDPOINTS,

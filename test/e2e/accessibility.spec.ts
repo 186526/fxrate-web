@@ -9,7 +9,7 @@ import {
 // axe 节点白名单：只放行"既有设计层"的精确节点（rule id + target/html 都须匹配），
 // 一个违规若含任何未白名单节点仍会失败——gate 不会随名单整体放宽。
 // 证据（全部为 color-contrast，serious，实测 axe 输出）：
-// - 表头 muted（已加深为 #5a666e，见 componets/theme.tsx）于 surfaceMuted (#f3f0ea) 对比度
+// - 表头 muted（已加深为 #5a666e，见 components/theme.tsx）于 surfaceMuted (#f3f0ea) 对比度
 //   5.19:1、矩阵价格类型未选中 ToggleButton muted 于 action.hover 对比度 5.18:1，均已达标，
 //   不再需要白名单（曾放行 MuiTableSortLabel/MuiTableCell-head/MuiToggleButtonGroup）。
 // - fxlistgrid "更新时间" RelativeTime caption 与 footer 两个版本 caption 同为 text.secondary，

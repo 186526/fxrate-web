@@ -1,7 +1,7 @@
 import { expect, Page, test } from "@playwright/test"
 import AxeBuilder from "@axe-core/playwright"
 import { mockJsonRpcRoutes } from "./helpers/mockJsonRpc"
-import { ENDPOINT_IDS, type EndpointId } from "../../componets/api-docs/model"
+import { ENDPOINT_IDS, type EndpointId } from "../../components/api-docs/model"
 import {
 	collectPageErrors,
 	collectStaticResource404s,

@@ -8,12 +8,12 @@ import Typography from "@mui/material/Typography"
 import {
 	ListTableSkeleton,
 	MatrixTableSkeleton,
-} from "@/componets/tableSkeleton"
+} from "@/components/tableSkeleton"
 
 // 路由加载骨架：薄壳下数据全部由浏览器端 Index 拉取，路由导航期间这里
 // 只渲染与正式页面结构对应的最小骨架（sticky 顶栏 + 货币选择器 + 表格骨架），
 // 布局结构与 index.tsx 保持一致，避免加载/就绪切换时的大幅布局跳动；
-// 表格骨架与客户端加载骨架共用 componets/tableSkeleton.tsx。
+// 表格骨架与客户端加载骨架共用 components/tableSkeleton.tsx。
 // 加载语义（role=status / aria-label）由表格骨架自身提供——路由壳与 Index
 // 客户端骨架复用同一组件，保证两种形态下都恰好只有一个 status 区域。
 export function LoadingShell({ matrix = false }: { matrix?: boolean }) {

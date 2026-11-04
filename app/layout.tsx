@@ -4,9 +4,9 @@ import Script from "next/script"
 import { Inter } from "next/font/google"
 import "./globals.css"
 import { AppRouterCacheProvider } from "@mui/material-nextjs/v16-appRouter"
-import { ThemeProvider } from "@/componets/theme"
-import { themeInitScript } from "@/componets/theme-init"
-import { WebVitals } from "@/componets/web-vitals"
+import { ThemeProvider } from "@/components/theme"
+import { themeInitScript } from "@/components/theme-init"
+import { WebVitals } from "@/components/web-vitals"
 
 const inter = Inter({ subsets: ["latin"] })
 

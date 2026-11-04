@@ -8,7 +8,7 @@ import {
 	buildRpcBody,
 	filterEndpoints,
 	getDefaultValues,
-} from "@/componets/api-docs/model"
+} from "@/components/api-docs/model"
 
 describe("API Docs endpoint model", () => {
 	it("builds REST paths with the documented precision default and typed query values", () => {

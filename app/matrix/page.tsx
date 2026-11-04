@@ -1,4 +1,4 @@
-import Index from "@/componets/index"
+import Index from "@/components/index"
 
 import packageJson from "../../package.json"
 

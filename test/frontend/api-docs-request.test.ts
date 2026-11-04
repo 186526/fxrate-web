@@ -5,7 +5,7 @@ import {
 	EndpointRequestCoordinator,
 	fetchRest,
 	type RequestState,
-} from "@/componets/api-docs/request"
+} from "@/components/api-docs/request"
 
 function deferred<T>() {
 	let resolvePromise: (value: T) => void = () => undefined

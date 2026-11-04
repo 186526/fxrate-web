@@ -3,11 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
 	clearSSRPrefetchCache,
 	prefetchDefaultView,
-} from "@/componets/ssr-prefetch"
+} from "@/components/ssr-prefetch"
 import {
 	getCurrenciesDetails,
 	showCurrencyAllRates,
-} from "@/componets/tools"
+} from "@/components/tools"
 
 const { mockShow, mockDetails, mockInfo } = vi.hoisted(() => ({
 	mockShow: vi.fn(),
@@ -15,8 +15,8 @@ const { mockShow, mockDetails, mockInfo } = vi.hoisted(() => ({
 	mockInfo: vi.fn(),
 }))
 
-vi.mock("@/componets/tools", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("@/componets/tools")>()
+vi.mock("@/components/tools", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@/components/tools")>()
 	return {
 		...actual,
 		showCurrencyAllRates: mockShow,

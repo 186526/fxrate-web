@@ -9,7 +9,7 @@ import {
 	rssURL,
 	showCurrencyAllRates,
 	withTimeout,
-} from "@/componets/tools"
+} from "@/components/tools"
 import {
 	createBatchMock,
 	createDeferredBatchMock,

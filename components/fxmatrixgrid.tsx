@@ -24,13 +24,15 @@ import ToggleButtonGroup from "@mui/material/ToggleButtonGroup"
 import ChecklistIcon from "@mui/icons-material/Checklist"
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents"
 
-import { sourceNamesInZH } from "@/lib/fxrate/src/constant"
 import {
 	RatesMatrix,
 	getSourceMatrixRow,
 	ratesPageURL,
 	isAbortError,
-} from "@/componets/tools"
+	getName,
+	SOURCE_COL_MIN_WIDTH,
+	NUMERIC_CELL_LAYOUT,
+} from "@/components/tools"
 import {
 	cellOf,
 	formatValue,
@@ -40,13 +42,11 @@ import {
 	toNumber,
 	type MatrixDisplayData,
 	type PriceType,
-} from "@/componets/matrix-utils"
-import { useBestPriceSources } from "@/componets/bestPriceSources"
-import BestPriceMark from "@/componets/bestPriceMark"
-import { SourceIcon, currencyEmoji } from "@/componets/sourceIcon"
-import { computeStats, StatsTip, StatsTipProvider, StatsTooltip, isStale, StaleIcon, useMounted } from "@/componets/rateStats"
-
-const nameMapping: { [x: string]: string } = sourceNamesInZH
+} from "@/components/matrix-utils"
+import { useBestPriceSources } from "@/components/bestPriceSources"
+import BestPriceMark from "@/components/bestPriceMark"
+import { SourceIcon, currencyEmoji } from "@/components/sourceIcon"
+import { computeStats, StatsTip, StatsTipProvider, StatsTooltip, isStale, StaleIcon, useMounted } from "@/components/rateStats"
 
 const DEFAULT_COMMON_CURRENCIES = [
 	"USD",
@@ -75,24 +75,6 @@ const compareCurrencies = (a: string, b: string): number => {
 }
 
 const MATRIX_CURRENCIES_KEY = "fxrate-matrix-currencies"
-
-// 窄屏宽度规则：来源列保证最小宽度（配合首列 sticky 截断长名）；
-// 数值列设 min/max 宽度并截断超长值，避免极端数字在 320px 下撑爆横滚布局。
-// 表头与正文首列单元格共用同一 minWidth，保证 sticky 列宽稳定不跳动。
-const SOURCE_COL_MIN_WIDTH = { xs: 116, sm: 150 } as const
-const NUMERIC_CELL_LAYOUT = {
-	minWidth: { xs: 64, sm: 80 },
-	maxWidth: { xs: 104, sm: 136 },
-	overflow: "hidden",
-	textOverflow: "ellipsis",
-	whiteSpace: "nowrap",
-} as const
-
-function getName(name: string): string {
-	if (nameMapping[name]) {
-		return nameMapping[name] + ` (${name})`
-	} else return name
-}
 
 // 额外行来源的加载状态：自动补查失败（error）可区分、可重试，
 // 不再被一次性 ref 永久去重

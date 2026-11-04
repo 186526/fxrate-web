@@ -2,15 +2,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { ThemeProvider } from "@/componets/theme"
-import Index from "@/componets/index"
+import { ThemeProvider } from "@/components/theme"
+import Index from "@/components/index"
 import {
 	FXRate,
 	getRatesMatrix,
 	getCurrenciesDetails,
 	showCurrencyAllRates,
-} from "@/componets/tools"
-import type { FXListProps } from "@/componets/fxlistgrid"
+} from "@/components/tools"
+import type { FXListProps } from "@/components/fxlistgrid"
 
 const { mockSearchParams } = vi.hoisted(() => ({
 	mockSearchParams: new URLSearchParams(),
@@ -22,8 +22,8 @@ vi.mock("next/navigation", () => ({
 	usePathname: () => "/",
 }))
 
-vi.mock("@/componets/tools", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("@/componets/tools")>()
+vi.mock("@/components/tools", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@/components/tools")>()
 	return {
 		...actual,
 		getRatesMatrix: vi.fn(),
