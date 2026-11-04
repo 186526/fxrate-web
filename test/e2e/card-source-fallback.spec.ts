@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test"
 import {
 	getMockServerCounters,
-	resetMockServer,
+	resetE2EState,
 	setMockServerScenario,
 } from "./helpers/mockServer"
 import {
@@ -13,7 +13,7 @@ const SOURCES = ["bankA", "mastercard", "visa"]
 
 test.describe("card-source matrix fallback", () => {
 	test.beforeEach(async () => {
-		await resetMockServer()
+		await resetE2EState()
 		await setMockServerScenario({
 			sources: SOURCES,
 			matrixForbiddenSources: ["mastercard"],

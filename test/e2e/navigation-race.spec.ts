@@ -1,5 +1,6 @@
 import { expect, Page, test } from "@playwright/test"
 import { mockJsonRpcRoutes } from "./helpers/mockJsonRpc"
+import { resetE2EState } from "./helpers/mockServer"
 
 function collectPageErrors(page: Page) {
 	const errors: string[] = []
@@ -20,6 +21,9 @@ function countDocumentNavigations(page: Page) {
 }
 
 test.describe("navigation-race", () => {
+	test.beforeEach(async () => {
+		await resetE2EState()
+	})
 	test("防抖窗口内快速来回切换视图：最终停在 '/' 且 pair 选中，无错误无覆盖", async ({
 		page,
 	}) => {

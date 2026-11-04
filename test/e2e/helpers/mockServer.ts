@@ -39,6 +39,13 @@ export async function resetMockServer(): Promise<void> {
 	if (!response.ok) {
 		throw new Error(`重置 mock server 失败：HTTP ${response.status}`)
 	}
+}
+
+// 每个用例开始前的统一重置：mock 计数与场景回到默认（/__reset 会恢复
+// defaultScenario），前端数据层模块级缓存清空。各 spec 的 beforeEach 只调这一个，
+// 避免某个 spec 改了 mock 场景或写了缓存后污染后续 spec。
+export async function resetE2EState(): Promise<void> {
+	await resetMockServer()
 	await resetWebCaches()
 }
 

@@ -1,5 +1,6 @@
 import { expect, Page, test } from "@playwright/test"
 import { mockJsonRpcRoutes } from "./helpers/mockJsonRpc"
+import { resetE2EState } from "./helpers/mockServer"
 
 function collectPageErrors(page: Page) {
 	const errors: string[] = []
@@ -8,6 +9,9 @@ function collectPageErrors(page: Page) {
 }
 
 test.describe("scroll-corner", () => {
+	test.beforeEach(async () => {
+		await resetE2EState()
+	})
 	test("矩阵双轴滚动：角落格钉在容器左上角、层级最高，覆盖表头×首列交叉区", async ({
 		page,
 	}, testInfo) => {

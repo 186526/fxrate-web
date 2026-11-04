@@ -4,8 +4,12 @@ import { expect, test } from "@playwright/test"
 // 1MiB 请求体上限（超限 413，且不计入批次计数）
 const MOCK_PORT = Number(process.env.MOCK_PORT || 8188)
 const MOCK = `http://127.0.0.1:${MOCK_PORT}`
+import { resetE2EState } from "./helpers/mockServer"
 
 test.describe("mock-server hardening", () => {
+	test.beforeEach(async () => {
+		await resetE2EState()
+	})
 	test("loopback 可达：ping 与正常 JSON-RPC 批量返回 200", async () => {
 		const ping = await fetch(`${MOCK}/__ping`)
 		expect(ping.status).toBe(200)

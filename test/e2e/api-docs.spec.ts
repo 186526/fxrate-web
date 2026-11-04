@@ -6,6 +6,7 @@ import {
 	collectPageErrors,
 	collectStaticResource404s,
 } from "./helpers/pageDiagnostics"
+import { resetE2EState } from "./helpers/mockServer"
 
 async function assertNoSeriousViolations(page: Page) {
 	const results = await new AxeBuilder({ page }).analyze()
@@ -34,6 +35,9 @@ async function selectEndpoint(page: Page, endpointId: EndpointId): Promise<void>
 }
 
 test.describe("API Docs", () => {
+	test.beforeEach(async () => {
+		await resetE2EState()
+	})
 	test("metadata、hash 深链、搜索选择与 Try-it-out 请求参数", async ({ page }) => {
 		const mock = mockJsonRpcRoutes(page)
 		const getErrors = collectPageErrors(page)

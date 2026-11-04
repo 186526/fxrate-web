@@ -2,7 +2,7 @@ import { expect, Page, test } from "@playwright/test"
 import { mockJsonRpcRoutes } from "./helpers/mockJsonRpc"
 import {
 	getMockServerCounters,
-	resetMockServer,
+	resetE2EState,
 } from "./helpers/mockServer"
 
 function collectPageErrors(page: Page) {
@@ -24,7 +24,7 @@ function collectPageErrors(page: Page) {
 //   浏览器 tools LRU 命中 → 数据零新增。
 test.describe("request-count", () => {
 	test.beforeEach(async () => {
-		await resetMockServer()
+		await resetE2EState()
 	})
 
 	test("SSR 首屏：浏览器 hydration 零货币列表/版本请求；切矩阵 +6；切回 pair 数据零新增", async ({
