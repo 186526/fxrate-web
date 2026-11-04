@@ -1,5 +1,5 @@
-import Index from "@/componets/index"
-import { prefetchDefaultView } from "@/componets/ssr-prefetch"
+import Index from "@/components/index"
+import { prefetchDefaultView } from "@/components/ssr-prefetch"
 
 import packageJson from "../package.json"
 

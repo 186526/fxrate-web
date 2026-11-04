@@ -10,7 +10,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it } from "vitest"
 import { createTheme, ThemeProvider } from "@mui/material/styles"
 
-import { StatsTip, StatsTipProvider } from "@/componets/rateStats"
+import { StatsTip, StatsTipProvider } from "@/components/rateStats"
 
 const theme = createTheme({
 	palette: {

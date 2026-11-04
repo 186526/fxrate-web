@@ -4,8 +4,8 @@ import {
 	getCurrenciesDetails,
 	getRatesMatrix,
 	getSourceMatrixRow,
-} from "@/componets/tools"
-import type { FXDetailsUpdate } from "@/componets/tools"
+} from "@/components/tools"
+import type { FXDetailsUpdate } from "@/components/tools"
 import { createBatchMock, createDeferredBatchMock } from "./jsonrpc"
 
 const isoNow = () => new Date().toISOString()

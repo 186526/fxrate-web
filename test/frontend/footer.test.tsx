@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 import { createTheme, ThemeProvider } from "@mui/material/styles"
 
-import Footer from "@/componets/footer"
+import Footer from "@/components/footer"
 
 const theme = createTheme({
 	palette: {

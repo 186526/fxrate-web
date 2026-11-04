@@ -5,7 +5,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import {
 	useBestPriceSources,
 	NON_BANK_SOURCES,
-} from "@/componets/bestPriceSources"
+} from "@/components/bestPriceSources"
 
 const KEY = "fxrate-best-price-sources"
 

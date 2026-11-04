@@ -2,10 +2,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { ThemeProvider } from "@/componets/theme"
-import Index from "@/componets/index"
-import type { FXListProps } from "@/componets/fxlistgrid"
-import type { RatesMatrix } from "@/componets/tools"
+import { ThemeProvider } from "@/components/theme"
+import Index from "@/components/index"
+import type { FXListProps } from "@/components/fxlistgrid"
+import type { RatesMatrix } from "@/components/tools"
 
 const { mockSearchParams } = vi.hoisted(() => ({
 	mockSearchParams: new URLSearchParams(),
@@ -17,8 +17,8 @@ vi.mock("next/navigation", () => ({
 	usePathname: () => "/",
 }))
 
-vi.mock("@/componets/tools", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("@/componets/tools")>()
+vi.mock("@/components/tools", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@/components/tools")>()
 	return {
 		...actual,
 		getRatesMatrix: vi.fn(),
@@ -28,7 +28,7 @@ vi.mock("@/componets/tools", async (importOriginal) => {
 	}
 })
 
-import { getCurrenciesDetails, getRatesMatrix } from "@/componets/tools"
+import { getCurrenciesDetails, getRatesMatrix } from "@/components/tools"
 
 const getCurrenciesDetailsMock = vi.mocked(getCurrenciesDetails)
 const getRatesMatrixMock = vi.mocked(getRatesMatrix)

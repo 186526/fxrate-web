@@ -17,7 +17,7 @@ import {
 	parsePrecision,
 	readLS,
 	writeLS,
-} from "@/componets/view-utils"
+} from "@/components/view-utils"
 
 describe("parsePrecision URL 解析", () => {
 	it("接受 [-1, 6] 的整数", () => {

@@ -5,7 +5,7 @@ import { createTheme, ThemeProvider } from "@mui/material/styles"
 
 import Loading from "@/app/loading"
 import MatrixLoading from "@/app/matrix/loading"
-import { ListTableSkeleton, MatrixTableSkeleton } from "@/componets/tableSkeleton"
+import { ListTableSkeleton, MatrixTableSkeleton } from "@/components/tableSkeleton"
 
 const theme = createTheme({
 	palette: {

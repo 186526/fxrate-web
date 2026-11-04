@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { ThemeProvider } from "@/componets/theme"
+import { ThemeProvider } from "@/components/theme"
 
-import APIDocs from "@/componets/apidocs"
-import { MethodBadge, RequestResult } from "@/componets/api-docs/ui"
+import APIDocs from "@/components/apidocs"
+import { MethodBadge, RequestResult } from "@/components/api-docs/ui"
 
 const setFetch = (globalThis as unknown as {
 	__fxSetFetch: (implementation: typeof fetch | null) => void

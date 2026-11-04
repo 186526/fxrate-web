@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-// 预绘制主题初始化脚本（componets/theme-init.ts）的契约测试：脚本必须在浏览器全局
+// 预绘制主题初始化脚本（components/theme-init.ts）的契约测试：脚本必须在浏览器全局
 // 可用时把 localStorage → prefers-color-scheme 解析出的主题写到 <html data-theme> 与
 // colorScheme，且绝不抛错（localStorage/matchMedia 不可用时静默回落 light）。
 
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { THEME_ATTR, THEME_KEY, themeInitScript } from "@/componets/theme-init"
+import { THEME_ATTR, THEME_KEY, themeInitScript } from "@/components/theme-init"
 
 const runScript = (): void => {
 	new Function(themeInitScript)()

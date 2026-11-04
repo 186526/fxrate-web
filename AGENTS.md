@@ -8,7 +8,7 @@ FXRate-web 是外汇汇率查看网页应用（前端），配套后端仓库 [1
 
 ## 必须遵守的约定
 
-- `componets/` 目录名拼写错误是历史遗留，保持原样；新组件放里面。
+- 新组件放 `components/`；数据层模块放 `components/fxrate/`，统一经 `components/tools.ts` 导出入口引用。
 - UI 面向中文用户：表头/文案用中文，数据源名经 `lib/fxrate/src/constant.ts` 的 `sourceNamesInZH` 映射。
 - 依赖用 yarn（1.22）管理（`yarn.lock`），勿混用 npm/pnpm。
 - 代码风格：缩进 tab、双引号、无分号。

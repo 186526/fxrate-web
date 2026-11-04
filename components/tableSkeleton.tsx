@@ -9,7 +9,7 @@ import TableCell from "@mui/material/TableCell"
 import TableContainer from "@mui/material/TableContainer"
 import TableHead from "@mui/material/TableHead"
 import TableRow from "@mui/material/TableRow"
-import { currencyEmoji } from "@/componets/sourceIcon"
+import { currencyEmoji } from "@/components/sourceIcon"
 
 // 客户端加载骨架（Phase 4B 任务 10）：浏览器 JSON-RPC 拉数阶段由 Index 渲染
 // 与正式表格同构的最小骨架——真实列名（sticky 名称列 + 数值列），8 行无假数据。
