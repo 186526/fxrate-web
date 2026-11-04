@@ -6,7 +6,7 @@ FXRate-web is a Next.js/React frontend backed by the `lib/fxrate` JSON-RPC servi
 
 ## Mental Model
 
-The browser renders pair and matrix views through `componets/index.tsx`; `componets/tools.ts` owns the JSON-RPC client, request batching, LRU caches, and cancellation semantics. Default pair requests are prefetched by `app/page.tsx` through `componets/ssr-prefetch.ts`. The `lib/fxrate` submodule maintains per-source rate graphs, refresh scheduling, persistence snapshots, REST handlers, and a JSON-RPC router.
+The browser renders pair and matrix views through `components/index.tsx`; `components/tools.ts` is the data-layer entry point re-exporting the JSON-RPC client, request batching, LRU caches, and cancellation semantics implemented under `components/fxrate/`. Default pair requests are prefetched by `app/page.tsx` through `components/ssr-prefetch.ts`. The `lib/fxrate` submodule maintains per-source rate graphs, refresh scheduling, persistence snapshots, REST handlers, and a JSON-RPC router.
 
 ## Findings Table
 
@@ -14,16 +14,16 @@ The browser renders pair and matrix views through `componets/index.tsx`; `compon
 | --- | --- | --- | --- | ---:| --- | --- |
 | TD-01 | Performance | `lib/fxrate/src/fxmManager.ts:229` | High | 2h | `listFXRates` previously awaited every target sequentially, multiplying latency by the number of currencies. | Fixed with an 8-worker bounded pool that preserves output order. |
 | TD-02 | Performance | `lib/fxrate/src/handler/rest.ts:255` | Medium | 1h | Cash, remit, and middle conversions are independent but were calculated serially for every row. | Fixed with `Promise.all` and per-type fallback preservation. |
-| TD-03 | Performance | `componets/ssr-prefetch.ts:79` | High | 1h | Completed-value SWR did not deduplicate concurrent cold-start RSC requests. | Fixed with per-key in-flight promise sharing and cleanup on settle. |
-| TD-04 | Performance | `componets/tools.ts:277` | High | 1h | Concurrent callers could duplicate `instanceInfo` and all-source currency-list RPCs before LRU population. | Fixed with in-flight deduplication for both metadata calls. |
+| TD-03 | Performance | `components/ssr-prefetch.ts:81` | High | 1h | Completed-value SWR did not deduplicate concurrent cold-start RSC requests. | Fixed with per-key in-flight promise sharing and cleanup on settle. |
+| TD-04 | Performance | `components/fxrate/metadata.ts:1` | High | 1h | Concurrent callers could duplicate `instanceInfo` and all-source currency-list RPCs before LRU population. | Fixed with in-flight deduplication for both metadata calls. |
 | TD-05 | Performance | `lib/fxrate/src/fxmManager.ts:763` | Medium | 1h | REST full-table responses previously stringified, parsed, recursively sorted, and stringified again. | Fixed: `useJson` now accepts structured values and callers sort/serialize once. |
 | TD-06 | Resource/CPU | `lib/fxrate/src/fxmManager.ts:505` | Medium | 4h | Refreshing a source used to call `fxManager.update()` for each rate, copying the graph root on every row. | Fixed: source refreshes now use staging-graph `updateMany()` with one atomic live-graph replacement. |
 | TD-07 | Type/contract | `lib/fxrate/src/fxm/fxManager.ts:206` | Medium | 2h | `update()` normalized nested rate fields in-place, mutating getter-owned input before commit. | Fixed: normalization now copies nested rate objects before validation and commit. |
-| TD-08 | Maintainability | `componets/index.tsx:1` | Medium | 8h | Main client orchestrator owns URL state, polling, fetching, and rendering coordination. | Partially fixed: content and persistent state are extracted; header controls remain colocated to preserve navigation timing and will be split with focused visual regression coverage. |
+| TD-08 | Maintainability | `components/index.tsx:1` | Medium | 8h | Main client orchestrator owns URL state, polling, fetching, and rendering coordination. | Partially fixed: content and persistent state are extracted; header controls remain colocated in `index.tsx` (about 1250 lines) to preserve navigation timing and will be split with focused visual regression coverage. |
 | TD-09 | Maintainability | `lib/fxrate/src/fxmManager.ts:1` | Medium | 8h | Backend manager combines routing, readiness, refresh, persistence, and source registration. | Fixed: readiness, source lifecycle, REST transport, and JSON-RPC domain handlers now live in dedicated modules; manager is now a lifecycle/protocol composition root. |
 | TD-10 | Observability | `lib/fxrate/src/fxmManager.ts:445` | Low | 1h | Logging was deferred with `setTimeout`, which could reorder messages and make shutdown diagnostics less deterministic. | Fixed: manager logs now emit synchronously with the existing level filter. |
 | TD-11 | Test debt | `lib/fxrate/test/unit/metrics.test.ts:119` | Medium | 1h | HTTP-level suites require socket binding; restricted CI/sandbox environments fail before assertions. | Mark socket capability tests as environment-gated; run the full integration suite in CI with networking enabled. |
-| TD-12 | Consistency | `componets/index.tsx:170` | Low | 2h | Lint reports multiple synchronous state updates inside effects and missing hook dependencies. | Fixed: persistent preferences use `useSyncExternalStore`; URL/request invalidation effects are documented external synchronization with complete dependencies. |
+| TD-12 | Consistency | `components/index.tsx:176` | Low | 2h | Lint reports multiple synchronous state updates inside effects and missing hook dependencies. | Fixed: persistent preferences use `useSyncExternalStore`; URL/request invalidation effects are documented external synchronization with complete dependencies. |
 | TD-13 | Performance governance | `scripts/bench/lighthouse-bench.mjs:48` | Low | 1h | Lighthouse runs reported metrics but had no configurable regression gate. | Fixed: optional FCP/LCP/performance-score thresholds now fail the run; pure SLA logic is unit tested. |
 
 ## Top 5 Priorities
@@ -46,7 +46,8 @@ The browser renders pair and matrix views through `componets/index.tsx`; `compon
 
 ## Looks Bad But Is Fine
 
-- `componets/` is intentionally misspelled for compatibility; renaming it would create unnecessary import and deployment churn.
+- `components/` is the only component directory; new components go there.
+- `components/tools.ts` is a re-export barrel over `components/fxrate/`; its small size is intentional and the implementation lives in the modules it re-exports.
 - The browser keeps a module-level `FXRate` client intentionally; server rendering uses request-scoped clients because `batch()` is mutable.
 - The Visa slow-source split and detached background request are deliberate to keep chromium/WAF latency off the critical path.
 
