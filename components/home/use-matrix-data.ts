@@ -88,6 +88,9 @@ export function useMatrixData({
 
 	const fetchMatrix = React.useCallback(
 		(force: boolean) => {
+			// 只拉当前视图的数据：单对视图激活时（切矩阵的 RSC 导航尚未完成）
+			// 不得发起矩阵请求，否则导航完成后矩阵会再拉一轮
+			if (view != "matrix") return
 			const currencies = currenciesRef.current
 			if (!currencies) return
 			const reqId = ++matrixReqRef.current
@@ -153,7 +156,7 @@ export function useMatrixData({
 					}
 				})
 		},
-		[matrixBase, amount, precision, matrixReverse]
+		[view, matrixBase, amount, precision, matrixReverse]
 	)
 
 	// 参数/视图变化时立即作废矩阵进行中的请求代际，防止陈旧响应
