@@ -108,10 +108,65 @@ const matrixCache = new LRUCache<string, RatesMatrix>({
 	ttl: 1000 * 60 * 5,
 })
 
+// 在途矩阵请求：同一 key 的并发调用共享同一轮 listFXRates。仅缓存已完成结果时，
+// 防抖窗口内二次触发的调用（currencies 到达、精度从存储读回）会各自重发整批请求。
+// 每个调用方用自己的 signal 等待共享结果：任一调用方取消只让它自己以 AbortError
+// 退出，其余调用方继续等待；全部调用方都取消时共享请求才被取消。
+interface MatrixInFlight {
+	promise: Promise<RatesMatrix>
+	// 共享请求自身的取消信号：只在全部调用方都取消时触发
+	controller: AbortController
+	// 仍在等待该请求的调用方数量
+	subscribers: number
+}
+const matrixInFlight = new Map<string, MatrixInFlight>()
+
+const joinMatrixInFlight = (
+	key: string,
+	shared: MatrixInFlight,
+	signal?: AbortSignal
+): Promise<RatesMatrix> => {
+	shared.subscribers++
+	return new Promise<RatesMatrix>((resolve, reject) => {
+		let settled = false
+		const leave = () => {
+			if (settled) return
+			settled = true
+			if (signal) signal.removeEventListener("abort", onAbort)
+			shared.subscribers--
+			if (shared.subscribers > 0) return
+			// 最后一个调用方也走了：取消共享请求，并让位给后续调用重新发起
+			if (matrixInFlight.get(key) == shared) matrixInFlight.delete(key)
+			shared.controller.abort()
+		}
+		const onAbort = () => {
+			leave()
+			reject(createAbortError())
+		}
+		if (signal) signal.addEventListener("abort", onAbort, { once: true })
+		const settle = () => {
+			if (settled) return
+			settled = true
+			if (signal) signal.removeEventListener("abort", onAbort)
+			shared.subscribers--
+		}
+		shared.promise.then(
+			(value) => {
+				settle()
+				resolve(value)
+			},
+			(error) => {
+				settle()
+				reject(error)
+			}
+		)
+	})
+}
+
 // 测试用：清空矩阵缓存（模块级缓存跨用例存活，避免用例间互相命中）。
 // 并发闸门 `matrixRowActiveRequests` / `matrixRowWaiters` 故意不清：它们只描述
 // 当前在途补查行的名额占用，不持有数据；在途请求结束时会自行释放名额，清空它们
-// 反而会让等待中的请求拿不到名额。
+// 反而会让等待中的请求拿不到名额。在途矩阵请求同理不清。
 export function clearMatrixCache(): void {
 	matrixCache.clear()
 }
@@ -172,8 +227,51 @@ export async function getRatesMatrix(
 	if (!force) {
 		const cached = matrixCache.get(key)
 		if (cached) return cached
+		// 同一 key 已有在途请求：加入它，不再发第二轮 listFXRates
+		const shared = matrixInFlight.get(key)
+		if (shared) return joinMatrixInFlight(key, shared, signal)
 	}
 
+	const shared: MatrixInFlight = {
+		controller: new AbortController(),
+		subscribers: 0,
+		promise: undefined as unknown as Promise<RatesMatrix>,
+	}
+	shared.promise = loadMatrix(key, currencies, from, {
+		amount,
+		precision,
+		reverse,
+		skip,
+		signal: shared.controller.signal,
+	})
+	matrixInFlight.set(key, shared)
+	// 共享请求结束后让位，后续调用重新走缓存或在途判断
+	const release = () => {
+		if (matrixInFlight.get(key) == shared) matrixInFlight.delete(key)
+	}
+	shared.promise.then(release, release)
+
+	return joinMatrixInFlight(key, shared, signal)
+}
+
+async function loadMatrix(
+	key: string,
+	currencies: { [source: string]: string[] },
+	from: string,
+	{
+		amount,
+		precision,
+		reverse,
+		skip,
+		signal,
+	}: {
+		amount: number
+		precision: number
+		reverse: boolean
+		skip: Set<string>
+		signal: AbortSignal
+	}
+): Promise<RatesMatrix> {
 	const client = getFXRateClient()
 
 	const data: RatesMatrix = {}
@@ -225,7 +323,7 @@ export async function getRatesMatrix(
 	}
 
 	// 批次完成但请求已被取消：不写缓存（AbortError 向上抛）
-	if (signal != undefined && signal.aborted) {
+	if (signal.aborted) {
 		throw createAbortError()
 	}
 
