@@ -5,7 +5,6 @@ import { LRUCache } from "lru-cache"
 import { getFXRateClient, safeUpdated } from "./client"
 import { createAbortError, runBatch } from "./request"
 import { SLOW_SOURCES } from "./source-links"
-import { registerDataRequestSettleHook } from "./test-cache-reset"
 
 export interface RatesMatrixCell {
 	middle: number | string | boolean
@@ -197,21 +196,9 @@ const joinMatrixInFlight = (
 // 测试用：清空矩阵缓存（模块级缓存跨用例存活，避免用例间互相命中）。
 // 并发闸门 `matrixRowActiveRequests` / `matrixRowWaiters` 故意不清：它们只描述
 // 当前在途补查行的名额占用，不持有数据；在途请求结束时会自行释放名额，清空它们
-// 反而会让等待中的请求拿不到名额。在途矩阵请求同理不清：调用方离开后仍可能跑完
-// 写缓存，清表只会让新调用重发一轮；调用方要清缓存时应先 await
-// settleMatrixRequests() 再清，避免在途那一轮的结果落回已清空的缓存。
+// 反而会让等待中的请求拿不到名额。在途矩阵请求同理不清：清表只会让新调用重发一轮。
 export function clearMatrixCache(): void {
 	matrixCache.clear()
-}
-
-// 等当前所有在途矩阵请求结束（含调用方离开后仍跑完写缓存的轮次）。
-// 这些轮次受 client 自身请求超时约束，不会无限等待。
-export async function settleMatrixRequests(): Promise<void> {
-	while (matrixInFlight.size > 0) {
-		await Promise.allSettled(
-			Array.from(matrixInFlight.values(), (shared) => shared.promise)
-		)
-	}
 }
 
 // 交叉汇率响应在 fxRateResponse 基础上多了 path 字段（client 类型未声明，运行时已透传）；
@@ -299,7 +286,6 @@ export async function getRatesMatrix(
 		if (matrixInFlight.get(key) == shared) matrixInFlight.delete(key)
 	}
 	shared.promise.then(release, release)
-	registerDataRequestSettleHook(settleMatrixRequests)
 
 	return joinMatrixInFlight(key, viewKey, shared, signal, isCurrentKey)
 }
