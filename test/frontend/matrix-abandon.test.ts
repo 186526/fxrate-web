@@ -62,6 +62,39 @@ describe("getRatesMatrix 调用方离开后的在途请求", () => {
 		expect(second.bankA.USD.middle).toBe(7.1)
 	})
 
+	it("key 未变：无人等待的轮次仍在跑时，新调用加入它而不另发一批", async () => {
+		const { stats, handles } = createDeferredBatchMock({ listFXRates })
+		const controller = new AbortController()
+		const first = settle(
+			getRatesMatrix(CURRENCIES, "CNY", {
+				amount: 800,
+				signal: controller.signal,
+				isCurrentKey: () => true,
+			})
+		)
+		await flush()
+		expect(stats.batches).toBe(1)
+
+		// 旧实例卸载：无人等待，但这一轮仍在跑
+		controller.abort()
+		expect((await first).status).toBe("rejected")
+
+		// 新实例挂载：加入同一轮，零新增批次
+		const second = settle(getRatesMatrix(CURRENCIES, "CNY", { amount: 800 }))
+		await flush()
+		expect(stats.batches).toBe(1)
+
+		handles[0].resolve()
+		const outcome = await second
+		expect(outcome.status).toBe("fulfilled")
+		expect(outcome.status == "fulfilled" ? outcome.value.bankA.USD.middle : 0).toBe(
+			7.1
+		)
+		// 再请求一次：命中缓存，仍零新增批次
+		await getRatesMatrix(CURRENCIES, "CNY", { amount: 800 })
+		expect(stats.batches).toBe(1)
+	})
+
 	it("key 已变：最后一个调用方取消时共享请求被取消，不写缓存", async () => {
 		const { stats, handles } = createDeferredBatchMock({ listFXRates })
 		const controller = new AbortController()
