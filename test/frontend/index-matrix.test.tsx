@@ -207,6 +207,11 @@ describe("Index 矩阵加载与自动刷新", () => {
 	})
 
 	it("薄壳重挂载后货币列表到达时不得重发已取得的一批", async () => {
+		// 本用例锁定的是序列契约：旧实例发出一批 → 整页重挂载 → 货币列表到达 →
+		// 不得再发第二批。它在修复前与修复后都通过（修复前该序列在单测里不会
+		// 复现第二轮），因此不是红绿回归用例，只防止该序列被后续改动破坏。
+		// 真正区分修复前后的证据是 e2e request-count 的批次计数：修复前探针
+		// 10 次里 3 次出现 6 批次，修复后 10/10 为 5 批次。
 		vi.useFakeTimers()
 		getRatesMatrixMock.mockResolvedValue({
 			bankA: { USD: { middle: 7.1 } },
@@ -245,7 +250,7 @@ describe("Index 矩阵加载与自动刷新", () => {
 			expect(getRatesMatrixMock).toHaveBeenCalledTimes(1)
 
 			// 货币列表到达：本轮挂载已取得同一 key 的数据，只恢复、不再排定计时器。
-			// 必须等满防抖窗口再断言，否则计时器尚未触发，用例无法区分修复前后。
+			// 等满防抖窗口再断言，确保即使排定了计时器也已触发。
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(300)
 			})
