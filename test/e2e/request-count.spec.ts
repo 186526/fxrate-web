@@ -86,15 +86,17 @@ test.describe("request-count", () => {
 		// → getFXRate/listFXRates/instanceInfo/listCurrencies 全部零新增
 		await page.getByRole("tab", { name: "单对报价" }).click()
 		await expect(page.getByText("bankA").first()).toBeVisible({ timeout: 30_000 })
-		// 切回 pair 的契约是「零新增」，不是一个时间窗口内的「恰好 5 批」：固定等
-		// 1500ms 既证明不了 RSC 导航后的 SWR 刷新（300ms 防抖 + 请求往返）已经跑过，
-		// 也证明不了新批次不会更晚到达。这里等 RSC 导航落地后，用一个轮询窗口
-		// （expect.poll 默认 100/250/500/1000ms 递增间隔，期间只要有一次不等于 5
-		// 就失败）持续观察，窗口内批次数始终为 5 才通过
+		// 切回 pair 的契约是「零新增」：usePairData 的 effect 在切回后 300ms 才发
+		// SWR 刷新批，只采样一次会在它发出前就通过。先等 RSC 导航落地，再在约 2s
+		// 内每 200ms 采样一次批次计数，任一次不等于 5 立即失败
 		await expect
 			.poll(() => new URL(page.url()).pathname, { timeout: 30_000 })
 			.toBe("/")
-		await expect.poll(() => mock.batches(), { timeout: 3_000 }).toBe(5)
+		const zeroIncreaseDeadline = Date.now() + 2_000
+		while (Date.now() < zeroIncreaseDeadline) {
+			expect(mock.batches()).toBe(5)
+			await page.waitForTimeout(200)
+		}
 		expect(mock.count("getFXRate")).toBe(8)
 		expect(mock.count("listFXRates")).toBe(3)
 		expect(mock.count("instanceInfo")).toBe(1)
