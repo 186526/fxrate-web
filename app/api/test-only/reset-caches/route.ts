@@ -8,10 +8,10 @@ import { NextResponse } from "next/server"
 // 路径段不能以 _ 开头：Next 把 _ 前缀目录视为私有目录，不生成路由。
 export const dynamic = "force-dynamic"
 
-export async function POST() {
+export function POST() {
 	if (process.env.NODE_ENV === "production") {
 		return new NextResponse(null, { status: 404 })
 	}
-	await clearDataCaches()
+	clearDataCaches()
 	return NextResponse.json({ cleared: true })
 }
