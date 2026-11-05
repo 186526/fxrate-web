@@ -122,10 +122,11 @@ export function useMatrixData({
 				skipSources: SLOW_SOURCES,
 				signal: controller.signal,
 				// 卸载/视图切换取消时，若参数仍是当前矩阵参数（切矩阵整页重挂载），
-				// 让共享请求跑完写缓存，新实例直接命中，不再重发整批。只比较请求参数
-				// key：view 不是请求参数，旧实例卸载时它的 view 闭包已随本地视图切换
-				// 离开 matrix，把 view 混进来会让 key 未变的轮次被取消
-				isCurrentKey: (key) => activeMatrixKeyRef.current == key,
+				// 让共享请求跑完写缓存，新实例直接命中，不再重发整批。入参就是
+				// matrixViewCacheKey 的结果，与 activeMatrixKey 同一形态。只比较请求
+				// 参数 key：view 不是请求参数，旧实例卸载时它的 view 闭包已随本地视图
+				// 切换离开 matrix，把 view 混进来会让 key 未变的轮次被取消
+				isCurrentKey: (viewKey) => activeMatrixKeyRef.current == viewKey,
 			})
 			request
 				.then((data) => {
