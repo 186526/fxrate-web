@@ -181,6 +181,11 @@ export function useMatrixData({
 		if (cached && cached.key == activeMatrixKey) {
 			setMatrix(cached.data)
 			setMatrixLoading(false)
+			// 本 key 的数据已在本次挂载中取得：切矩阵的整页重挂载会让旧实例的
+			// 防抖计时器先发出这一轮，新实例的货币列表随后才到达；此时再排定
+			// 计时器会按同一 key 重发一整批 listFXRates。后续刷新由 60s 自动
+			// 刷新、手动刷新与参数变化承担。
+			return
 		} else {
 			// 从单对视图首次切入矩阵时，fetchMatrix 尚在 300ms 防抖窗口；
 			// 立即进入加载态，避免短暂闪出“暂无矩阵数据”。
