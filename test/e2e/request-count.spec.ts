@@ -57,8 +57,11 @@ test.describe("request-count", () => {
 		await expect
 			.poll(() => mock.count("getFXRate"), { timeout: 15_000 })
 			.toBeGreaterThan(0)
-		await page.waitForTimeout(1500)
-		expect(mock.batches()).toBe(2)
+		// 等主批量与 visa 后台批量都落地：批次计数在 page.route 入口自增，只等
+		// getFXRate>0 会截在 visa 批发出之前
+		await expect
+			.poll(() => mock.batches(), { timeout: 15_000 })
+			.toBe(2)
 		expect(mock.count("instanceInfo")).toBe(0)
 		expect(mock.count("listCurrencies")).toBe(0)
 		expect(mock.count("getFXRate")).toBe(8)
@@ -68,11 +71,13 @@ test.describe("request-count", () => {
 		// + 货币列表（4 个来源同批）+ 矩阵（1）= +3 批量；浏览器层累计 5 批次
 		await page.getByRole("tab", { name: "全对矩阵" }).click()
 		await expect(page.getByText(/以 CNY 为基准/)).toBeVisible({ timeout: 30_000 })
+		// 矩阵批先于 instanceInfo/listCurrencies 到达：矩阵批在货币列表到达后 300ms
+		// 才发出，但货币列表批本身要先等 instanceInfo 往返，实测矩阵批比它早约 1.5s
+		// 到 page.route。只等 listFXRates>0 会把前置两批截在断言之后（batches=3）。
+		// 批次计数在 page.route 入口自增，这里直接等累计批次到 5，再断言各 method 精确值
 		await expect
-			.poll(() => mock.count("listFXRates"), { timeout: 20_000 })
-			.toBeGreaterThan(0)
-		await page.waitForTimeout(1500)
-		expect(mock.batches()).toBe(5)
+			.poll(() => mock.batches(), { timeout: 20_000 })
+			.toBe(5)
 		expect(mock.count("instanceInfo")).toBe(1)
 		expect(mock.count("listCurrencies")).toBe(4)
 		expect(mock.count("listFXRates")).toBe(3)
@@ -81,12 +86,21 @@ test.describe("request-count", () => {
 		// → getFXRate/listFXRates/instanceInfo/listCurrencies 全部零新增
 		await page.getByRole("tab", { name: "单对报价" }).click()
 		await expect(page.getByText("bankA").first()).toBeVisible({ timeout: 30_000 })
-		await page.waitForTimeout(1500)
+		// 切回 pair 的契约是「零新增」：usePairData 的 effect 在切回后 300ms 才发
+		// SWR 刷新批，只采样一次会在它发出前就通过。先等 RSC 导航落地，再在约 2s
+		// 内每 200ms 采样一次批次计数，任一次不等于 5 立即失败
+		await expect
+			.poll(() => new URL(page.url()).pathname, { timeout: 30_000 })
+			.toBe("/")
+		const zeroIncreaseDeadline = Date.now() + 2_000
+		while (Date.now() < zeroIncreaseDeadline) {
+			expect(mock.batches()).toBe(5)
+			await page.waitForTimeout(200)
+		}
 		expect(mock.count("getFXRate")).toBe(8)
 		expect(mock.count("listFXRates")).toBe(3)
 		expect(mock.count("instanceInfo")).toBe(1)
 		expect(mock.count("listCurrencies")).toBe(4)
-		expect(mock.batches()).toBe(5)
 
 		expect(getErrors()).toEqual([])
 	})
