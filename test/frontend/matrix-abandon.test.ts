@@ -37,7 +37,7 @@ describe("getRatesMatrix 调用方离开后的在途请求", () => {
 		const first = settle(
 			getRatesMatrix(CURRENCIES, "CNY", {
 				signal: controller.signal,
-				// 调用方只有视图缓存 key（不含来源指纹与 skip 策略）
+				// 入参就是视图缓存 key（matrixViewCacheKey 的结果）
 				isCurrentKey: (key) => key == "CNY-100-p4-forward",
 			})
 		)
