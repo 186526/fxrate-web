@@ -118,6 +118,10 @@ export function useMatrixData({
 				reverse: matrixReverse,
 				skipSources: SLOW_SOURCES,
 				signal: controller.signal,
+				// 卸载/视图切换取消时，若参数仍是当前矩阵参数（切矩阵整页重挂载），
+				// 让共享请求跑完写缓存，新实例直接命中，不再重发整批
+				isCurrentKey: (key) =>
+					view == "matrix" && activeMatrixKeyRef.current == key,
 			})
 				.then((data) => {
 					if (

@@ -111,20 +111,32 @@ const matrixCache = new LRUCache<string, RatesMatrix>({
 // 在途矩阵请求：同一 key 的并发调用共享同一轮 listFXRates。仅缓存已完成结果时，
 // 防抖窗口内二次触发的调用（currencies 到达、精度从存储读回）会各自重发整批请求。
 // 每个调用方用自己的 signal 等待共享结果：任一调用方取消只让它自己以 AbortError
-// 退出，其余调用方继续等待；全部调用方都取消时共享请求才被取消。
+// 退出，其余调用方继续等待。
+//
+// 调用方全部离开后共享请求是否继续跑：由调用方在离开时按「key 是否仍是当前参数」
+// 决定（见 isCurrentKey）。key 未变时（切矩阵的整页重挂载，旧实例卸载、新实例
+// 稍后挂载）这一轮结果仍是下一个实例要的数据，取消它会让请求永远到不了
+// matrixCache、新实例重发整批；key 已变时（金额/基准/精度/方向变化）旧结果已无用，
+// 取消是正确的。共享请求本身有超时，留下继续跑的轮次不会无限占用。
 interface MatrixInFlight {
 	promise: Promise<RatesMatrix>
-	// 共享请求自身的取消信号：只在全部调用方都取消时触发
+	// 共享请求自身的取消信号：调用方全部离开且 key 已变时触发
 	controller: AbortController
 	// 仍在等待该请求的调用方数量
 	subscribers: number
+	// 已无调用方、不再计入在途表：新调用不加入它，结果只写缓存
+	abandoned: boolean
 }
 const matrixInFlight = new Map<string, MatrixInFlight>()
+
+// 该 key 是否仍是当前请求参数：调用方离开时据此判断在途请求是否还值得跑完
+type IsCurrentMatrixKey = (key: string) => boolean
 
 const joinMatrixInFlight = (
 	key: string,
 	shared: MatrixInFlight,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	isCurrentKey?: IsCurrentMatrixKey
 ): Promise<RatesMatrix> => {
 	shared.subscribers++
 	return new Promise<RatesMatrix>((resolve, reject) => {
@@ -135,7 +147,14 @@ const joinMatrixInFlight = (
 			if (signal) signal.removeEventListener("abort", onAbort)
 			shared.subscribers--
 			if (shared.subscribers > 0) return
-			// 最后一个调用方也走了：取消共享请求，并让位给后续调用重新发起
+			// 最后一个调用方也走了：key 已变则取消，key 未变则让它跑完写缓存
+			if (isCurrentKey && isCurrentKey(key)) {
+				if (matrixInFlight.get(key) == shared) {
+					matrixInFlight.delete(key)
+					shared.abandoned = true
+				}
+				return
+			}
 			if (matrixInFlight.get(key) == shared) matrixInFlight.delete(key)
 			shared.controller.abort()
 		}
@@ -166,7 +185,9 @@ const joinMatrixInFlight = (
 // 测试用：清空矩阵缓存（模块级缓存跨用例存活，避免用例间互相命中）。
 // 并发闸门 `matrixRowActiveRequests` / `matrixRowWaiters` 故意不清：它们只描述
 // 当前在途补查行的名额占用，不持有数据；在途请求结束时会自行释放名额，清空它们
-// 反而会让等待中的请求拿不到名额。在途矩阵请求同理不清。
+// 反而会让等待中的请求拿不到名额。在途矩阵请求同理不清：调用方离开后仍可能跑完
+// 写缓存，清表只会让新调用重发一轮。e2e 的缓存重置因此不保证在途那一轮的结果
+// 不落回缓存，但重置发生在用例之间、且用例内不再依赖上一用例的在途请求。
 export function clearMatrixCache(): void {
 	matrixCache.clear()
 }
@@ -201,6 +222,9 @@ export async function getRatesMatrix(
 		// 取消信号：参数/视图变化时 abort，取消未发送与可取消的在途工作；
 		// 被取消的请求不写缓存（AbortError 向上抛）
 		signal?: AbortSignal
+		// key 是否仍是当前请求参数：signal 取消时据此决定共享请求继续跑完写缓存
+		// （key 未变）还是取消（key 已变）。缺省视为 key 已变，即立即取消
+		isCurrentKey?: IsCurrentMatrixKey
 	} = {}
 ): Promise<RatesMatrix> {
 	const {
@@ -210,6 +234,7 @@ export async function getRatesMatrix(
 		reverse = false,
 		skipSources,
 		signal,
+		isCurrentKey,
 	} = options
 
 	const skip = skipSources ?? SLOW_SOURCES
@@ -227,14 +252,19 @@ export async function getRatesMatrix(
 	if (!force) {
 		const cached = matrixCache.get(key)
 		if (cached) return cached
-		// 同一 key 已有在途请求：加入它，不再发第二轮 listFXRates
+		// 同一 key 已有在途请求：加入它，不再发第二轮 listFXRates。
+		// 已无调用方的在途请求不再加入：它只为写缓存而跑，加入它会让新调用
+		// 拿到一轮可能已被判为「无用」的结果
 		const shared = matrixInFlight.get(key)
-		if (shared) return joinMatrixInFlight(key, shared, signal)
+		if (shared && !shared.abandoned) {
+			return joinMatrixInFlight(key, shared, signal, isCurrentKey)
+		}
 	}
 
 	const shared: MatrixInFlight = {
 		controller: new AbortController(),
 		subscribers: 0,
+		abandoned: false,
 		promise: undefined as unknown as Promise<RatesMatrix>,
 	}
 	shared.promise = loadMatrix(key, currencies, from, {
@@ -251,7 +281,7 @@ export async function getRatesMatrix(
 	}
 	shared.promise.then(release, release)
 
-	return joinMatrixInFlight(key, shared, signal)
+	return joinMatrixInFlight(key, shared, signal, isCurrentKey)
 }
 
 async function loadMatrix(
