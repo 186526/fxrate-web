@@ -168,10 +168,13 @@ export function useMatrixData({
 		[view, matrixBase, amount, precision, matrixReverse]
 	)
 
-	// 参数/视图变化时立即作废矩阵进行中的请求代际，防止陈旧响应
+	// 参数变化时立即作废矩阵进行中的请求代际，防止陈旧响应
 	// （旧基准/金额/精度/方向请求在 300ms 防抖窗口内完成）落地
 	// 污染 matrixCacheRef/matrix/matrixSnapshot/loading/error；
-	// 同时 abort 在途请求（与单对视图独立，互不影响）
+	// 同时 abort 在途请求（与单对视图独立，互不影响）。
+	// view 不在依赖里：视图切换不改变请求参数，切矩阵的整页重挂载下旧实例卸载时
+	// 若在此取消，key 未变的轮次会被取消、新实例只能重发整批；请求本身已由
+	// isCurrentKey 区分「key 已变」与「key 未变」，视图门禁在 fetchMatrix 里
 	React.useEffect(() => {
 		/* eslint-disable react-hooks/set-state-in-effect -- clearing stale request error */
 		matrixReqRef.current++
@@ -179,7 +182,7 @@ export function useMatrixData({
 		matrixAbortRef.current = null
 		setMatrixError(null)
 		/* eslint-enable react-hooks/set-state-in-effect */
-	}, [view, matrixBase, amount, precision, matrixReverse])
+	}, [matrixBase, amount, precision, matrixReverse])
 
 	// 依赖 currencies 只为判断「是否已有货币列表」：挂载后货币列表到达时补跑一次。
 	// fetchMatrix 已不随 currencies 变化，currencies 到达不会重排计时器
