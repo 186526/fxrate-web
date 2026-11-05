@@ -1,8 +1,14 @@
-import { SLOW_SOURCES, type RatesMatrix } from "./tools"
+import { SLOW_SOURCES } from "./fxrate/source-links"
+import type { RatesMatrix } from "./tools"
 import type { FXListProps } from "./shared"
 
 // Index 视图层的纯函数与常量：URL 构造/解析、缓存 key、快照有效性判定、视图记忆。
 // 从 index.tsx 抽出，便于单测直测契约（此前只经组件与 e2e 间接验证）。
+//
+// 数据层 components/fxrate/matrix-rates.ts 复用 matrixViewCacheKey，因此本文件对
+// 数据层只允许 type-only import（./tools），运行时值直接从定义处取
+// （SLOW_SOURCES 来自 ./fxrate/source-links），否则 tools.ts ↔ view-utils.ts ↔
+// matrix-rates.ts 会构成模块循环。回归用例见 test/frontend/view-utils-imports.test.ts。
 
 export type View = "pair" | "matrix"
 
