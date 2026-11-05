@@ -32,6 +32,16 @@ const PRECISION_OPTIONS: { value: number; label: string }[] = [
 	{ value: 6, label: "6 位" },
 ]
 
+// 精度可来自 URL/localStorage，parsePrecision 接受 [-1, 6] 内任意整数；
+// 当前值不在预设时补一个对应位数的选项，保证 Select 的 value 始终有选中项
+const precisionOptionsFor = (precision: number) =>
+	PRECISION_OPTIONS.some((option) => option.value == precision)
+		? PRECISION_OPTIONS
+		: [
+				...PRECISION_OPTIONS,
+				{ value: precision, label: `${precision} 位` },
+		  ].sort((a, b) => a.value - b.value)
+
 export interface HeaderProps {
 	view: View
 	onViewChange: (view: View) => void
@@ -77,6 +87,7 @@ export default function Header(props: HeaderProps) {
 		React.useState<HTMLElement | null>(null)
 
 	const themeToggleTooltip = mode == "dark" ? "切换浅色模式" : "切换暗色模式"
+	const precisionOptions = precisionOptionsFor(precision)
 
 	return (
 		<Box
@@ -198,7 +209,7 @@ export default function Header(props: HeaderProps) {
 					}}
 					inputProps={{ "aria-label": "小数精度" }}
 				>
-					{PRECISION_OPTIONS.map((option) => (
+					{precisionOptions.map((option) => (
 						<MenuItem key={option.value} value={option.value}>
 							{option.label}
 						</MenuItem>
@@ -211,7 +222,7 @@ export default function Header(props: HeaderProps) {
 					open={Boolean(precisionAnchor)}
 					onClose={() => setPrecisionAnchor(null)}
 				>
-					{PRECISION_OPTIONS.map((option) => (
+					{precisionOptions.map((option) => (
 						<MenuItem
 							key={option.value}
 							selected={precision == option.value}
