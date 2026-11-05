@@ -47,6 +47,8 @@ export function useMatrixData({
 
 	const matrixReqRef = React.useRef(0)
 	const matrixAbortRef = React.useRef<AbortController | null>(null)
+	// 本实例是否有在途矩阵请求：货币列表到达时若上一轮仍在途，不再排定计时器
+	const matrixInFlightRef = React.useRef(false)
 
 	// 服务端/调用方传入的初始矩阵视为本次挂载时已取得；同一 Date 复用于
 	// cache/snapshot，避免两个容器的更新时间产生毫秒级偏差。
@@ -97,6 +99,7 @@ export function useMatrixData({
 			matrixAbortRef.current?.abort()
 			const controller = new AbortController()
 			matrixAbortRef.current = controller
+			matrixInFlightRef.current = true
 			setMatrixError(null)
 			const key = matrixViewCacheKey(
 				matrixBase,
@@ -141,8 +144,10 @@ export function useMatrixData({
 						setMatrixLoading(false)
 						setMatrixError(null)
 					}
+					matrixInFlightRef.current = false
 				})
 				.catch((e) => {
+					matrixInFlightRef.current = false
 					// 取消（参数/视图变化/新请求接管）不视为失败，不触碰错误/加载状态
 					if (isAbortError(e)) return
 					if (
@@ -168,6 +173,7 @@ export function useMatrixData({
 		matrixReqRef.current++
 		matrixAbortRef.current?.abort()
 		matrixAbortRef.current = null
+		matrixInFlightRef.current = false
 		setMatrixError(null)
 		/* eslint-enable react-hooks/set-state-in-effect */
 	}, [view, matrixBase, amount, precision, matrixReverse])
@@ -191,6 +197,11 @@ export function useMatrixData({
 			// 立即进入加载态，避免短暂闪出“暂无矩阵数据”。
 			setMatrixLoading(true)
 		}
+		// 挂载后 currencies 从 null 变为对象时本 effect 会再跑一次：此时若上一轮
+		// 计时器已触发、请求仍在途（薄壳 /matrix 的货币列表晚于挂载到达），排定
+		// 新计时器会在第一轮结束后按同一 key 重发整批 listFXRates。请求在途时
+		// 不排定，结果由第一轮落地。
+		if (matrixInFlightRef.current) return
 		const timer = setTimeout(() => fetchMatrix(false), 300)
 		return () => clearTimeout(timer)
 	}, [view, currencies, activeMatrixKey, fetchMatrix])
