@@ -28,6 +28,7 @@ export const DEFAULT_COMMON_CURRENCIES = [
 	"CNH",
 	"KRW",
 	"THB",
+	"TWD",
 ]
 
 export const MATRIX_CURRENCIES_KEY = "fxrate-matrix-currencies"

@@ -43,6 +43,7 @@ export const MATRIX_COLUMNS: string[] = [
 	"CNH",
 	"KRW",
 	"THB",
+	"TWD",
 ]
 
 const SKELETON_ROWS = 8
