@@ -78,8 +78,17 @@ export function useMatrixData({
 	const [matrixExtraRowsGeneration, setMatrixExtraRowsGeneration] =
 		React.useState(0)
 
+	// currencies 只在真正发起请求时读取：把它放进 fetchMatrix 依赖会让货币列表
+	// 到达（薄壳 /matrix 挂载后异步拉取）换掉 fetchMatrix 引用，重排防抖计时器、
+	// 重建 60s 自动刷新 interval，并让 effect 重跑。请求参数本身不依赖 currencies。
+	const currenciesRef = React.useRef(currencies)
+	React.useEffect(() => {
+		currenciesRef.current = currencies
+	}, [currencies])
+
 	const fetchMatrix = React.useCallback(
 		(force: boolean) => {
+			const currencies = currenciesRef.current
 			if (!currencies) return
 			const reqId = ++matrixReqRef.current
 			matrixAbortRef.current?.abort()
@@ -144,7 +153,7 @@ export function useMatrixData({
 					}
 				})
 		},
-		[currencies, matrixBase, amount, precision, matrixReverse]
+		[matrixBase, amount, precision, matrixReverse]
 	)
 
 	// 参数/视图变化时立即作废矩阵进行中的请求代际，防止陈旧响应
@@ -160,6 +169,8 @@ export function useMatrixData({
 		/* eslint-enable react-hooks/set-state-in-effect */
 	}, [view, matrixBase, amount, precision, matrixReverse])
 
+	// 依赖 currencies 只为判断「是否已有货币列表」：挂载后货币列表到达时补跑一次。
+	// fetchMatrix 已不随 currencies 变化，currencies 到达不会重排计时器
 	React.useEffect(() => {
 		if (view != "matrix" || !currencies) return
 		// 切回本视图时立即恢复上次数据，不等防抖，避免白屏
