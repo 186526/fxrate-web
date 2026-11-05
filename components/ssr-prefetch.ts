@@ -7,6 +7,7 @@ import type { FXListProps } from "@/components/fxlistgrid"
 import {
 	clearBundleCaches,
 	registerDataCacheClearHook,
+	settleDataRequests,
 } from "./fxrate/test-cache-reset"
 import {
 	getBackendInfo,
@@ -44,8 +45,10 @@ export function clearSSRPrefetchCache(): void {
 
 // 测试用：把本模块所在 bundle 的清空函数登记到 globalThis，供
 // app/api/test-only/reset-caches 路由清掉页面 bundle 那份缓存（见 test-cache-reset.ts）
-registerDataCacheClearHook(() => {
+registerDataCacheClearHook(async () => {
 	clearSSRPrefetchCache()
+	// 本 bundle 自己那份在途矩阵请求同样要先等它落地再清，否则结果会落回已清空的缓存
+	await settleDataRequests()
 	clearBundleCaches()
 })
 
