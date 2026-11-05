@@ -88,6 +88,9 @@ export function useMatrixData({
 
 	const fetchMatrix = React.useCallback(
 		(force: boolean) => {
+			// 只拉当前视图的数据：单对视图激活时（切矩阵的 RSC 导航尚未完成）
+			// 不得发起矩阵请求，否则导航完成后矩阵会再拉一轮
+			if (view != "matrix") return
 			const currencies = currenciesRef.current
 			if (!currencies) return
 			const reqId = ++matrixReqRef.current
@@ -108,14 +111,23 @@ export function useMatrixData({
 			} else {
 				setMatrixLoading(true)
 			}
-			getRatesMatrix(currencies, matrixBase, {
+			// 先拿到 promise 再挂 .then/.catch：getRatesMatrix 是 async 函数，若先
+			// 调用再链式挂接，调用方在同步段内 abort 时它会在 .then 挂上之前就以
+			// AbortError 拒绝，链尾的 .catch 与写缓存分支都不执行
+			const request = getRatesMatrix(currencies, matrixBase, {
 				amount,
 				precision,
 				force,
 				reverse: matrixReverse,
 				skipSources: SLOW_SOURCES,
 				signal: controller.signal,
+				// 卸载/视图切换取消时，若参数仍是当前矩阵参数（切矩阵整页重挂载），
+				// 让共享请求跑完写缓存，新实例直接命中，不再重发整批。只比较请求参数
+				// key：view 不是请求参数，旧实例卸载时它的 view 闭包已随本地视图切换
+				// 离开 matrix，把 view 混进来会让 key 未变的轮次被取消
+				isCurrentKey: (key) => activeMatrixKeyRef.current == key,
 			})
+			request
 				.then((data) => {
 					if (
 						reqId == matrixReqRef.current &&
@@ -153,13 +165,16 @@ export function useMatrixData({
 					}
 				})
 		},
-		[matrixBase, amount, precision, matrixReverse]
+		[view, matrixBase, amount, precision, matrixReverse]
 	)
 
-	// 参数/视图变化时立即作废矩阵进行中的请求代际，防止陈旧响应
+	// 参数变化时立即作废矩阵进行中的请求代际，防止陈旧响应
 	// （旧基准/金额/精度/方向请求在 300ms 防抖窗口内完成）落地
 	// 污染 matrixCacheRef/matrix/matrixSnapshot/loading/error；
-	// 同时 abort 在途请求（与单对视图独立，互不影响）
+	// 同时 abort 在途请求（与单对视图独立，互不影响）。
+	// view 不在依赖里：视图切换不改变请求参数，切矩阵的整页重挂载下旧实例卸载时
+	// 若在此取消，key 未变的轮次会被取消、新实例只能重发整批；请求本身已由
+	// isCurrentKey 区分「key 已变」与「key 未变」，视图门禁在 fetchMatrix 里
 	React.useEffect(() => {
 		/* eslint-disable react-hooks/set-state-in-effect -- clearing stale request error */
 		matrixReqRef.current++
@@ -167,7 +182,7 @@ export function useMatrixData({
 		matrixAbortRef.current = null
 		setMatrixError(null)
 		/* eslint-enable react-hooks/set-state-in-effect */
-	}, [view, matrixBase, amount, precision, matrixReverse])
+	}, [matrixBase, amount, precision, matrixReverse])
 
 	// 依赖 currencies 只为判断「是否已有货币列表」：挂载后货币列表到达时补跑一次。
 	// fetchMatrix 已不随 currencies 变化，currencies 到达不会重排计时器
@@ -178,6 +193,11 @@ export function useMatrixData({
 		if (cached && cached.key == activeMatrixKey) {
 			setMatrix(cached.data)
 			setMatrixLoading(false)
+			// 本 key 的数据已在本次挂载中取得：切矩阵的整页重挂载会让旧实例的
+			// 防抖计时器先发出这一轮，新实例的货币列表随后才到达；此时再排定
+			// 计时器会按同一 key 重发一整批 listFXRates。后续刷新由 60s 自动
+			// 刷新、手动刷新与参数变化承担。
+			return
 		} else {
 			// 从单对视图首次切入矩阵时，fetchMatrix 尚在 300ms 防抖窗口；
 			// 立即进入加载态，避免短暂闪出“暂无矩阵数据”。

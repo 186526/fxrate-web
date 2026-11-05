@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { act, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { ThemeProvider } from "@/components/theme"
 import Index from "@/components/index"
@@ -206,6 +206,60 @@ describe("Index 矩阵加载与自动刷新", () => {
 		expect(screen.getByText("银行/平台")).toBeInTheDocument()
 	})
 
+	it("薄壳重挂载后货币列表到达时不得重发已取得的一批", async () => {
+		// 本用例锁定的是序列契约：旧实例发出一批 → 整页重挂载 → 货币列表到达 →
+		// 不得再发第二批。它在修复前与修复后都通过（修复前该序列在单测里不会
+		// 复现第二轮），因此不是红绿回归用例，只防止该序列被后续改动破坏。
+		// 真正区分修复前后的证据是 e2e request-count 的批次计数：修复前探针
+		// 10 次里 3 次出现 6 批次，修复后 10/10 为 5 批次。
+		vi.useFakeTimers()
+		getRatesMatrixMock.mockResolvedValue({
+			bankA: { USD: { middle: 7.1 } },
+		})
+		vi.mocked(showCurrencyAllRates).mockResolvedValue({
+			bankA: ["CNY", "USD"],
+		})
+
+		// 薄壳挂载：货币列表由客户端异步拉取
+		const renderShell = () =>
+			render(
+				<ThemeProvider>
+					<Index
+						buildId="build"
+						buildTime="2026-01-01T00:00:00.000Z"
+						version="1.0.0"
+						initialCurrencies={null}
+					/>
+				</ThemeProvider>
+			)
+
+		try {
+			renderShell()
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(0)
+			})
+			// 旧实例：货币列表到达后防抖发出这一批
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(300)
+			})
+			expect(getRatesMatrixMock).toHaveBeenCalledTimes(1)
+
+			// 切矩阵的整页重挂载：旧实例卸载，新实例的货币列表稍后才到达
+			cleanup()
+			renderShell()
+			expect(getRatesMatrixMock).toHaveBeenCalledTimes(1)
+
+			// 货币列表到达：本轮挂载已取得同一 key 的数据，只恢复、不再排定计时器。
+			// 等满防抖窗口再断言，确保即使排定了计时器也已触发。
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(300)
+			})
+			expect(getRatesMatrixMock).toHaveBeenCalledTimes(1)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
 	it("矩阵视图在页面可见时每 60 秒强制刷新", async () => {
 		vi.useFakeTimers()
 		Object.defineProperty(document, "visibilityState", {
@@ -229,17 +283,18 @@ describe("Index 矩阵加载与自动刷新", () => {
 				</ThemeProvider>
 			)
 
+			// 挂载时已带初始矩阵（缓存命中），不再排定 300ms 防抖首轮，
+			// 首个请求由 60s 定时器以强制刷新发出
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(300)
 			})
-			expect(getRatesMatrixMock).toHaveBeenCalledTimes(1)
-			expect(getRatesMatrixMock.mock.calls[0][2]?.force).toBe(false)
+			expect(getRatesMatrixMock).toHaveBeenCalledTimes(0)
 
 			await act(async () => {
-				await vi.advanceTimersByTimeAsync(59700)
+				await vi.advanceTimersByTimeAsync(60000)
 			})
-			expect(getRatesMatrixMock).toHaveBeenCalledTimes(2)
-			expect(getRatesMatrixMock.mock.calls[1][2]?.force).toBe(true)
+			expect(getRatesMatrixMock).toHaveBeenCalledTimes(1)
+			expect(getRatesMatrixMock.mock.calls[0][2]?.force).toBe(true)
 		} finally {
 			vi.useRealTimers()
 		}
@@ -267,6 +322,8 @@ describe("Index 矩阵 stale revalidation 提示", () => {
 		)
 
 		expect(screen.getByText("7.1")).toBeInTheDocument()
+		await user.click(screen.getByRole("button", { name: "刷新" }))
+		expect(getRatesMatrixMock).toHaveBeenCalledTimes(1)
 		expect(
 			await screen.findByText("刷新失败，当前显示的是上次成功获取的数据。")
 		).toBeInTheDocument()
@@ -278,6 +335,7 @@ describe("Index 矩阵 stale revalidation 提示", () => {
 	})
 
 	it("空成功快照后刷新失败显示内联错误，不显示陈旧数据 Snackbar", async () => {
+		const user = userEvent.setup()
 		render(
 			<ThemeProvider>
 				<Index
@@ -290,6 +348,7 @@ describe("Index 矩阵 stale revalidation 提示", () => {
 			</ThemeProvider>
 		)
 
+		await user.click(screen.getByRole("button", { name: "刷新" }))
 		expect(await screen.findByText("matrix refresh failed")).toBeInTheDocument()
 		expect(
 			screen.queryByText("刷新失败，当前显示的是上次成功获取的数据。")
@@ -298,6 +357,7 @@ describe("Index 矩阵 stale revalidation 提示", () => {
 	})
 
 	it("只有空来源行、没有实际报价的快照不触发陈旧数据 Snackbar", async () => {
+		const user = userEvent.setup()
 		render(
 			<ThemeProvider>
 				<Index
@@ -310,6 +370,7 @@ describe("Index 矩阵 stale revalidation 提示", () => {
 			</ThemeProvider>
 		)
 
+		await user.click(screen.getByRole("button", { name: "刷新" }))
 		expect(await screen.findByText("matrix refresh failed")).toBeInTheDocument()
 		expect(
 			screen.queryByText("刷新失败，当前显示的是上次成功获取的数据。")

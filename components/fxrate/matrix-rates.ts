@@ -4,6 +4,7 @@ import { LRUCache } from "lru-cache"
 import { getFXRateClient, safeUpdated } from "./client"
 import { createAbortError, runBatch } from "./request"
 import { SLOW_SOURCES } from "./source-links"
+import { registerDataRequestSettleHook } from "./test-cache-reset"
 
 export interface RatesMatrixCell {
 	middle: number | string | boolean
@@ -111,20 +112,57 @@ const matrixCache = new LRUCache<string, RatesMatrix>({
 // 在途矩阵请求：同一 key 的并发调用共享同一轮 listFXRates。仅缓存已完成结果时，
 // 防抖窗口内二次触发的调用（currencies 到达、精度从存储读回）会各自重发整批请求。
 // 每个调用方用自己的 signal 等待共享结果：任一调用方取消只让它自己以 AbortError
-// 退出，其余调用方继续等待；全部调用方都取消时共享请求才被取消。
+// 退出，其余调用方继续等待。
+//
+// 调用方全部离开后共享请求是否继续跑：由调用方在离开时按「参数是否仍是当前值」
+// 决定（见 isCurrentKey）。参数未变时（切矩阵的整页重挂载，旧实例卸载、新实例
+// 稍后挂载）这一轮结果仍是下一个实例要的数据，取消它会让请求永远到不了
+// matrixCache、新实例重发整批；参数已变时（金额/基准/精度/方向变化）旧结果已无用，
+// 取消是正确的。共享请求本身有超时，留下继续跑的轮次不会无限占用。
 interface MatrixInFlight {
 	promise: Promise<RatesMatrix>
-	// 共享请求自身的取消信号：只在全部调用方都取消时触发
+	// 共享请求自身的取消信号：调用方全部离开且参数已变时触发
 	controller: AbortController
-	// 仍在等待该请求的调用方数量
+	// 仍在等待该请求的调用方数量；降为 0 后该轮仍留在在途表里直到落地，
+	// 新调用方加入同一轮，不再重发整批
 	subscribers: number
 }
 const matrixInFlight = new Map<string, MatrixInFlight>()
 
+// 该轮请求的参数是否仍是当前参数：调用方离开时据此判断在途请求是否还值得跑完。
+// 入参是请求参数部分的 key（不含来源指纹与 skip 策略），与视图缓存 key 同形
+type IsCurrentMatrixKey = (requestKey: string) => boolean
+
+// 请求参数部分的 key（不含来源指纹与 skip 策略）：与视图缓存 key 同形，
+// 调用方（use-matrix-data 的 activeMatrixKey）只能按这部分判断参数是否仍是当前值
+const matrixRequestKeyPrefix = (
+	from: string,
+	amount: number,
+	precision: number,
+	reverse: boolean
+): string => `${from}-${amount}-p${precision}-${reverse ? "reverse" : "forward"}`
+
+const matrixRequestKey = (
+	from: string,
+	amount: number,
+	precision: number,
+	reverse: boolean,
+	currencies: { [source: string]: string[] },
+	skip: Set<string>
+): string => {
+	// 来源/支持货币与 skip 策略（排序稳定）纳入缓存 key：
+	// 请求范围变化时自动失效，避免命中缺失新源或不同 skip 策略的旧矩阵
+	const skipFingerprint =
+		skip.size > 0 ? Array.from(skip).sort().join("+") : "none"
+	return `${matrixRequestKeyPrefix(from, amount, precision, reverse)}|${sourceSupportFingerprint(currencies)}|skip:${skipFingerprint}`
+}
+
 const joinMatrixInFlight = (
 	key: string,
+	requestKey: string,
 	shared: MatrixInFlight,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	isCurrentKey?: IsCurrentMatrixKey
 ): Promise<RatesMatrix> => {
 	shared.subscribers++
 	return new Promise<RatesMatrix>((resolve, reject) => {
@@ -135,7 +173,8 @@ const joinMatrixInFlight = (
 			if (signal) signal.removeEventListener("abort", onAbort)
 			shared.subscribers--
 			if (shared.subscribers > 0) return
-			// 最后一个调用方也走了：取消共享请求，并让位给后续调用重新发起
+			// 最后一个调用方也走了：参数已变则取消，参数未变则让它跑完写缓存
+			if (isCurrentKey && isCurrentKey(requestKey)) return
 			if (matrixInFlight.get(key) == shared) matrixInFlight.delete(key)
 			shared.controller.abort()
 		}
@@ -166,9 +205,21 @@ const joinMatrixInFlight = (
 // 测试用：清空矩阵缓存（模块级缓存跨用例存活，避免用例间互相命中）。
 // 并发闸门 `matrixRowActiveRequests` / `matrixRowWaiters` 故意不清：它们只描述
 // 当前在途补查行的名额占用，不持有数据；在途请求结束时会自行释放名额，清空它们
-// 反而会让等待中的请求拿不到名额。在途矩阵请求同理不清。
+// 反而会让等待中的请求拿不到名额。在途矩阵请求同理不清：调用方离开后仍可能跑完
+// 写缓存，清表只会让新调用重发一轮；调用方要清缓存时应先 await
+// settleMatrixRequests() 再清，避免在途那一轮的结果落回已清空的缓存。
 export function clearMatrixCache(): void {
 	matrixCache.clear()
+}
+
+// 等当前所有在途矩阵请求结束（含调用方离开后仍跑完写缓存的轮次）。
+// 这些轮次受 client 自身请求超时约束，不会无限等待。
+export async function settleMatrixRequests(): Promise<void> {
+	while (matrixInFlight.size > 0) {
+		await Promise.allSettled(
+			Array.from(matrixInFlight.values(), (shared) => shared.promise)
+		)
+	}
 }
 
 // 交叉汇率响应在 fxRateResponse 基础上多了 path 字段（client 类型未声明，运行时已透传）；
@@ -201,6 +252,10 @@ export async function getRatesMatrix(
 		// 取消信号：参数/视图变化时 abort，取消未发送与可取消的在途工作；
 		// 被取消的请求不写缓存（AbortError 向上抛）
 		signal?: AbortSignal
+		// 参数是否仍是当前值（入参为请求参数部分的 key，不含来源指纹与 skip 策略）：
+		// signal 取消时据此决定共享请求继续跑完写缓存（参数未变）还是取消（参数已变）。
+		// 缺省视为参数已变，即立即取消
+		isCurrentKey?: IsCurrentMatrixKey
 	} = {}
 ): Promise<RatesMatrix> {
 	const {
@@ -210,14 +265,12 @@ export async function getRatesMatrix(
 		reverse = false,
 		skipSources,
 		signal,
+		isCurrentKey,
 	} = options
 
 	const skip = skipSources ?? SLOW_SOURCES
-	// 来源/支持货币与 skip 策略（排序稳定）纳入缓存 key：
-	// 请求范围变化时自动失效，避免命中缺失新源或不同 skip 策略的旧矩阵
-	const skipFingerprint =
-		skip.size > 0 ? Array.from(skip).sort().join("+") : "none"
-	const key = `${from}-${amount}-p${precision}-${reverse ? "reverse" : "forward"}|${sourceSupportFingerprint(currencies)}|skip:${skipFingerprint}`
+	const requestKey = matrixRequestKeyPrefix(from, amount, precision, reverse)
+	const key = matrixRequestKey(from, amount, precision, reverse, currencies, skip)
 
 	// 预中止：在 cache 读取之前抛 AbortError——被取消的请求即使命中缓存也不返回数据
 	if (signal != undefined && signal.aborted) {
@@ -227,9 +280,13 @@ export async function getRatesMatrix(
 	if (!force) {
 		const cached = matrixCache.get(key)
 		if (cached) return cached
-		// 同一 key 已有在途请求：加入它，不再发第二轮 listFXRates
+		// 同一 key 已有在途请求：加入它，不再发第二轮 listFXRates。
+		// 调用方已全部离开、仍在跑的轮次同样加入：参数未变时（切矩阵整页重挂载）
+		// 它拿的就是新实例要的数据，为它单开一轮只会让批次计数 +1
 		const shared = matrixInFlight.get(key)
-		if (shared) return joinMatrixInFlight(key, shared, signal)
+		if (shared) {
+			return joinMatrixInFlight(key, requestKey, shared, signal, isCurrentKey)
+		}
 	}
 
 	const shared: MatrixInFlight = {
@@ -250,8 +307,9 @@ export async function getRatesMatrix(
 		if (matrixInFlight.get(key) == shared) matrixInFlight.delete(key)
 	}
 	shared.promise.then(release, release)
+	registerDataRequestSettleHook(settleMatrixRequests)
 
-	return joinMatrixInFlight(key, shared, signal)
+	return joinMatrixInFlight(key, requestKey, shared, signal, isCurrentKey)
 }
 
 async function loadMatrix(

@@ -34,6 +34,17 @@ async function resetWebCaches(): Promise<void> {
 	}
 }
 
+// 等前端在途数据请求落地：矩阵请求在调用方离开后会继续跑完写缓存，
+// 不等它落地就清缓存，上一用例的数据会漏进下一用例
+async function settleWebRequests(): Promise<void> {
+	const response = await fetch(`${WEB_ORIGIN}/api/test-only/settle-requests`, {
+		method: "POST",
+	})
+	if (!response.ok) {
+		throw new Error(`等待在途请求结束失败：HTTP ${response.status}`)
+	}
+}
+
 export async function resetMockServer(): Promise<void> {
 	const response = await fetch(`${MOCK_ORIGIN}/__reset`)
 	if (!response.ok) {
@@ -45,6 +56,8 @@ export async function resetMockServer(): Promise<void> {
 // defaultScenario），前端数据层模块级缓存清空。各 spec 的 beforeEach 只调这一个，
 // 避免某个 spec 改了 mock 场景或写了缓存后污染后续 spec。
 export async function resetE2EState(): Promise<void> {
+	// 先等在途请求落地再重置计数与缓存：否则上一用例的在途轮次会记进下一用例的计数
+	await settleWebRequests()
 	await resetMockServer()
 	await resetWebCaches()
 }
