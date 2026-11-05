@@ -111,7 +111,10 @@ export function useMatrixData({
 			} else {
 				setMatrixLoading(true)
 			}
-			getRatesMatrix(currencies, matrixBase, {
+			// 先拿到 promise 再挂 .then/.catch：getRatesMatrix 是 async 函数，若先
+			// 调用再链式挂接，调用方在同步段内 abort 时它会在 .then 挂上之前就以
+			// AbortError 拒绝，链尾的 .catch 与写缓存分支都不执行
+			const request = getRatesMatrix(currencies, matrixBase, {
 				amount,
 				precision,
 				force,
@@ -123,6 +126,7 @@ export function useMatrixData({
 				isCurrentKey: (key) =>
 					view == "matrix" && activeMatrixKeyRef.current == key,
 			})
+			request
 				.then((data) => {
 					if (
 						reqId == matrixReqRef.current &&
