@@ -4,8 +4,7 @@ import { fxRateResponse } from "@/lib/fxrate/src/client"
 import { LRUCache } from "lru-cache"
 import { getFXRateClient, safeUpdated } from "./client"
 import { createAbortError, runBatch } from "./request"
-import { SLOW_SOURCES } from "./source-links"
-import { sourceSupportFingerprint } from "./matrix-rates"
+import { SLOW_SOURCES, sourceSupportFingerprint } from "./source-links"
 
 const cache = new LRUCache<string, FXListProps[]>({
 	max: 100,

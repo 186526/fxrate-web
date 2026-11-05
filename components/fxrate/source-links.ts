@@ -8,6 +8,23 @@ export const bestPriceExcludeSources = new Set(["pboc"])
 // （MasterCard 实测毫秒级，不在此列，单对走主批量、矩阵默认自动加载）
 export const SLOW_SOURCES = new Set(["visa"])
 
+// 请求范围指纹：参与请求的来源及其各自支持的货币稳定化后纳入缓存 key。
+// 来源列表或支持货币变化（如新增银行、上游货币覆盖变化）时缓存自动失效，
+// 避免命中缺少新源/新货币的旧数据；undefined/非数组（部分结果）安全处理
+export const sourceSupportFingerprint = (currencies: {
+	[source: string]: string[]
+}): string => {
+	return Object.keys(currencies)
+		.sort()
+		.map((s) => {
+			const supported = currencies[s]
+			return Array.isArray(supported)
+				? `${s}:${[...supported].sort().join("+")}`
+				: `${s}:?`
+		})
+		.join("|")
+}
+
 // 各来源官方外汇牌价页 URL（用于银行行跳转"查看官方牌价"）。
 // 全部经 exa 搜索确认为各银行官网公开牌价栏目；boc/ccb/cmb/icbc/abc/bocom 另经 Chrome 实测打开。
 export const sourceRatesURL: Record<string, string> = {

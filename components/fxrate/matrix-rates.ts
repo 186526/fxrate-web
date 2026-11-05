@@ -4,7 +4,8 @@ import { fxRateResponse } from "@/lib/fxrate/src/client"
 import { LRUCache } from "lru-cache"
 import { getFXRateClient, safeUpdated } from "./client"
 import { createAbortError, runBatch } from "./request"
-import { SLOW_SOURCES } from "./source-links"
+import { SLOW_SOURCES, sourceSupportFingerprint } from "./source-links"
+import { registerDataCacheClearHook } from "./test-cache-reset"
 
 export interface RatesMatrixCell {
 	middle: number | string | boolean
@@ -85,23 +86,6 @@ const acquireMatrixRowSlot = (signal?: AbortSignal): Promise<() => void> => {
 		}
 		matrixRowWaiters.push(waiter)
 	})
-}
-
-// 请求范围指纹：参与请求的来源及其各自支持的货币稳定化后纳入缓存 key。
-// 来源列表或支持货币变化（如新增银行、上游货币覆盖变化）时缓存自动失效，
-// 避免命中缺少新源/新货币的旧数据；undefined/非数组（部分结果）安全处理
-export const sourceSupportFingerprint = (currencies: {
-	[source: string]: string[]
-}): string => {
-	return Object.keys(currencies)
-		.sort()
-		.map((s) => {
-			const supported = currencies[s]
-			return Array.isArray(supported)
-				? `${s}:${[...supported].sort().join("+")}`
-				: `${s}:?`
-		})
-		.join("|")
 }
 
 const matrixCache = new LRUCache<string, RatesMatrix>({
@@ -462,3 +446,8 @@ export async function getSourceMatrixRow(
 
 	return row
 }
+
+// 测试用：把本模块的清空登记到 test-cache-reset 的 globalThis 钩子。
+// 本模块静态 import test-cache-reset，ESM 先求值被依赖模块，因此这里执行时
+// 该模块已求值完毕；test-cache-reset 不必反向 import 本模块。
+registerDataCacheClearHook(clearMatrixCache)
