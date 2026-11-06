@@ -64,6 +64,7 @@ const LOGO_EXT: Record<string, string> = {
 	szrcb: "png",
 	bankofnx: "png",
 	"bea.mo": "png",
+	obank: "svg",
 	taifung: "png",
 }
 
