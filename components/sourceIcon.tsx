@@ -60,6 +60,11 @@ const LOGO_EXT: Record<string, string> = {
 	shengjing: "png",
 	"fubonbank.hk": "png",
 	brcb: "png",
+	csrcbank: "png",
+	szrcb: "png",
+	bankofnx: "png",
+	"bea.mo": "png",
+	taifung: "png",
 }
 
 export function SourceIcon({
