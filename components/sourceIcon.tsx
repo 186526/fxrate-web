@@ -49,6 +49,12 @@ const LOGO_EXT: Record<string, string> = {
 	hkab: "png",
 	ocbc: "png",
 	ocbchk: "png",
+	chbank: "png",
+	taishin: "png",
+	chb: "png",
+	shrcb: "png",
+	nbcb: "png",
+	cqrcb: "png",
 }
 
 export function SourceIcon({
