@@ -42,7 +42,7 @@ export function currencyEmoji(currency: string): string | undefined {
 const NO_LOGO = new Set<string>()
 const CARD_SOURCES = new Set(["unionpay", "visa", "mastercard", "jcb"])
 const FX_SOURCES = new Set(["wise"])
-// 本地 logo 文件扩展名（默认 svg；PNG 版用于源文件本身是 PNG 的情况）
+// 本地 logo 文件扩展名（默认 svg；其他格式用于源文件本身是 PNG/JPG 的情况）
 const LOGO_EXT: Record<string, string> = {
 	cfets: "png",
 	hkma: "png",
@@ -55,6 +55,10 @@ const LOGO_EXT: Record<string, string> = {
 	shrcb: "png",
 	nbcb: "png",
 	cqrcb: "png",
+	tjbank: "png",
+	jxbank: "png",
+	shengjing: "png",
+	"fubonbank.hk": "jpg",
 }
 
 export function SourceIcon({
